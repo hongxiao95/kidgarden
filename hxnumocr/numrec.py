@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import List, Tuple
 import numpy as np
 from enum import Enum
-from NetworkFunctions import ReLU, ActivateFunction, softmax
+from hxnumocr.NetworkFunctions import ReLU, ActivateFunction, softmax
 import cv2
 import os, random, math
 from typing import Callable
@@ -351,7 +351,9 @@ class OneHotFullLinkNetwork:
     def predict_single_img(self, img:np.ndarray, color_reverse:bool = False):
         # 二值化处理
         _, binary_img = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY)
-        binary_img = cv2.cvtColor(binary_img, cv2.COLOR_BGR2GRAY)
+        
+        if binary_img.ndim > 2:
+            binary_img = cv2.cvtColor(binary_img, cv2.COLOR_BGR2GRAY)
 
         binary_img = cv2.resize(binary_img, (self.sample_shape))
         if color_reverse == True:
