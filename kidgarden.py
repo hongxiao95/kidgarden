@@ -177,11 +177,11 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
             height_max = False
             for h in range(-i, rows - i + 1):
                 # 行列延申时也判断一下
-                if matrix[i][j] == 0 or h == 0:
+                if matrix[i][j] == 0:
                     continue
                 for w in range(-j, cols - j + 1):
                     # 一个单元格一定不会成立，直接继续
-                    if (h == 1 and w == 1) or w == 0:
+                    if (h == 1 and w == 1):
                         continue
 
                     # 当前搜索的矩形范围及其和
@@ -281,20 +281,22 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
 
     return best_solution
 
-def print_steps(solution:Solution, origin_matrix:np.ndarray):
+def print_steps(solution:Solution, origin_matrix:np.ndarray, direct:bool = True):
     print(f"Best Score: {solution.score}")
-    cmd = input("Press to show step, q to exit: ")
-    if cmd == "q":
-        sys.exit()
+    if not direct:
+        cmd = input("Press to show step, q to exit: ")
+        if cmd == "q":
+            return
 
     display_matrix = np.copy(origin_matrix)
     for rect in solution.rects:
         os.system("cls")
+        print(f"Goal:{solution.score}")
         print_rect_with_color(display_matrix, rect)
         execute_rect(display_matrix, rect)
         cmd = input("Press for next, q to exit: ").strip().lower()
         if cmd == "q":
-            sys.exit()
+            return
     
 
 def main():
@@ -302,13 +304,22 @@ def main():
         os.mkdir("temp")
     
     file_name = input("file name *.png: ").strip()
+    full_file_name = f"imgs{os.path.sep}{file_name}.png"
+    
+    while True:
+        if os.path.exists(full_file_name) == False:
+            time.sleep(0.1)
+        else:
+            break
+        
 
     number_imgs = get_number_grids_from_image(f"{file_name}.png","imgs")
+    os.remove(full_file_name)
 
     matrix = build_matrix_from_grid_imgs(number_imgs)
     
     time_st = time.time()
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,9),None,True) for i in range(4)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(6,9),None,True) for i in range(2)]
     time_end = time.time()
     time_cost = time_end - time_st  
 
@@ -318,6 +329,8 @@ def main():
     print(f"Cost: {np.round(time_cost,2)} s.")
 
     print_steps(best_solution, matrix)
+    # os.remove(full_file_name)
+
 
 if __name__ == "__main__":
     main()
