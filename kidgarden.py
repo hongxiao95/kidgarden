@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-import os
+import os,sys,time
 from hxnumocr.numrec import OneHotFullLinkNetwork as NumberNet
 from colorama import Fore, Back, Style
 from collections import deque
@@ -170,16 +170,30 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
     
     for i in rows_list:
         for j in cols_list:
+            # 已经被消除的单元格，跳过检索
+            if matrix[i][j] == 0:
+                continue
+            # 确认是否达到最大高度的flag
             height_max = False
-            for h in range(1, rows - i + 1):
-                for w in range(1, cols - j + 1):
-                    if h == 1 and w == 1:
+            for h in range(-i, rows - i + 1):
+                # 行列延申时也判断一下
+                if matrix[i][j] == 0 or h == 0:
+                    continue
+                for w in range(-j, cols - j + 1):
+                    # 一个单元格一定不会成立，直接继续
+                    if (h == 1 and w == 1) or w == 0:
                         continue
+
+                    # 当前搜索的矩形范围及其和
                     rect = (i,j,h,w)
                     now_sum = rect_sum(matrix, rect)
+
+                    # 找到匹配，记载
                     if now_sum == 10:
                         matched_rects.append(rect)
                         execute_rect(matrix, rect)
+                    
+                    # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
                     if now_sum >= 10:
                         if w == 1:
                             height_max = True
@@ -214,7 +228,7 @@ class Solution:
     def get_hash(self):
         return hashlib.md5(self.current_matrix.tobytes()).hexdigest()
 
-def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None):
+def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True):
     origin_solution = Solution(matrix)
     solutions_queue = deque([origin_solution])
 
@@ -229,12 +243,13 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
         
         solution = solutions_queue.pop()
         
-        next_rects_list = [find_all_seq_matches(solution.current_matrix) for _ in range(get_branchs())]
+        next_rects_list = [find_all_seq_matches(solution.current_matrix, random_search) for _ in range(get_branchs())]
         for rects in next_rects_list:
+            calc_count += 1
             if len(rects) == 0:
                 continue
             new_solution = solution.clone()
-            calc_count += 1
+            
             if limit_use_rects != None:
                 if limit_use_rects < 1:
                     limit_use_rects = max(1, int(len(rects) * limit_use_rects))
@@ -246,7 +261,7 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
                 break
             if new_solution.score > best_solution.score:
                 best_solution = new_solution
-                print(f"Calc {calc_count} times, Now Score:{best_solution.score}, QueueSize:{len(solutions_queue)}")
+                print(f"Calc {calc_count} times, Now Score:{best_solution.score}, Steps:{len(best_solution.rects)} QueueSize:{len(solutions_queue)}")
             # print(new_solution.score, end=' ')
             new_hash = new_solution.get_hash()
             if new_hash in matrix_hashs:
@@ -262,18 +277,24 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
             break
     if best_solution.is_win() == False:
         print(f"Only Reach:{best_solution.score}")
+    print(f"Calc {calc_count} times, Now Score:{best_solution.score}, Steps:{len(best_solution.rects)} QueueSize:{len(solutions_queue)}\n")
+
     return best_solution
 
 def print_steps(solution:Solution, origin_matrix:np.ndarray):
     print(f"Best Score: {solution.score}")
-    input("Press to show step")
+    cmd = input("Press to show step, q to exit: ")
+    if cmd == "q":
+        sys.exit()
 
     display_matrix = np.copy(origin_matrix)
     for rect in solution.rects:
         os.system("cls")
         print_rect_with_color(display_matrix, rect)
         execute_rect(display_matrix, rect)
-        input("Press for next")
+        cmd = input("Press for next, q to exit: ").strip().lower()
+        if cmd == "q":
+            sys.exit()
     
 
 def main():
@@ -286,7 +307,15 @@ def main():
 
     matrix = build_matrix_from_grid_imgs(number_imgs)
     
-    best_solution = find_best_solution(matrix, lambda:np.random.randint(12,16),None)
+    time_st = time.time()
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,9),None,True) for i in range(4)]
+    time_end = time.time()
+    time_cost = time_end - time_st  
+
+    best_solutions.sort(key=lambda x: (x.score, 0 - len(x.rects)))
+    best_solution = best_solutions[-1]
+
+    print(f"Cost: {np.round(time_cost,2)} s.")
 
     print_steps(best_solution, matrix)
 
