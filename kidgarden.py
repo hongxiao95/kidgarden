@@ -113,7 +113,7 @@ def print_rect_with_color(matrix, rect:tuple):
         for j in range(len(matrix[0])):
             print_value = " " if matrix[i][j] == 0 else matrix[i][j]
             if in_rect(i, j):
-                out_str += f"{Back.RED}{print_value}{Style.RESET_ALL} "
+                out_str += f"{Back.RED}{print_value}{' ' + Style.RESET_ALL if j < rect[1] + rect[3] - 1 else Style.RESET_ALL + ' '}"
             else:
                 out_str += f"{print_value} "
         out_str += "\n"
@@ -250,7 +250,8 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
                 continue
             new_solution = solution.clone()
             
-            if limit_use_rects != None:
+            # 如果设置了主动减除一次操作序列的后半部分
+            if limit_use_rects != None and np.random.rand() < 0.5:
                 if limit_use_rects < 1:
                     limit_use_rects = max(1, int(len(rects) * limit_use_rects))
                 rects = rects[:limit_use_rects]
@@ -312,11 +313,13 @@ def main():
         else:
             break
         
-
+    time_st = time.time()
     number_imgs = get_number_grids_from_image(f"{file_name}.png","imgs")
-    os.remove(full_file_name)
-
+    # os.remove(full_file_name)
     matrix = build_matrix_from_grid_imgs(number_imgs)
+    time_end = time.time()
+    time_cost = time_end - time_st
+    print(f"Img Recognize : {np.round(time_cost, 2)} s.")
     
     time_st = time.time()
     best_solutions = [find_best_solution(matrix, lambda:np.random.randint(6,9),None,True) for i in range(2)]
@@ -326,7 +329,7 @@ def main():
     best_solutions.sort(key=lambda x: (x.score, 0 - len(x.rects)))
     best_solution = best_solutions[-1]
 
-    print(f"Cost: {np.round(time_cost,2)} s.")
+    print(f"Cost: {np.round(time_cost,2)} s. ")
 
     print_steps(best_solution, matrix)
     # os.remove(full_file_name)
