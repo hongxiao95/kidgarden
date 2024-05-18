@@ -1,3 +1,4 @@
+# coding:utf-8
 import cv2
 import numpy as np
 import os,sys,time
@@ -5,8 +6,6 @@ from hxnumocr.numrec import OneHotFullLinkNetwork as NumberNet
 from colorama import Fore, Back, Style
 from collections import deque
 import hashlib
-import numba as nb
-
 
 r'''
 1. 读取图片
@@ -346,9 +345,23 @@ def print_steps(solution:Solution, origin_matrix:np.ndarray, direct:bool = True)
 def main():
     if os.path.exists("temp") == False:
         os.mkdir("temp")
-    
-    file_name = input("file name *.png: ").strip()
-    full_file_name = f"imgs{os.path.sep}{file_name}.png"
+
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        full_file_name = sys.argv[1]
+        dir = full_file_name[:full_file_name.rfind(os.sep)]
+        file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
+    else:
+        dir = "imgs"
+        file_name = input("file name *.png: ").strip()
+        if "." not in file_name:
+            full_file_name = f"{dir}{os.path.sep}{file_name}.png"
+        else:
+            full_file_name = file_name
+            if full_file_name.startswith('"'):
+                full_file_name = full_file_name[1:-1]
+            dir = full_file_name[:full_file_name.rfind(os.sep)]
+            file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
+
     
     while True:
         if os.path.exists(full_file_name) == False:
@@ -357,7 +370,7 @@ def main():
             break
         
     time_st = time.time()
-    number_imgs = get_number_grids_from_image(f"{file_name}.png","imgs")
+    number_imgs = get_number_grids_from_image(file_name,dir)
     # os.remove(full_file_name)
     matrix = build_matrix_from_grid_imgs(number_imgs)
     time_end = time.time()
@@ -365,7 +378,7 @@ def main():
     print(f"Img Recognize : {np.round(time_cost, 2)} s.")
     
     time_st = time.time()
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(5,8),None,True) for _ in range(3)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(5,9),None,True) for _ in range(3)]
     time_end = time.time()
     time_cost = time_end - time_st  
 

@@ -6,8 +6,7 @@ import numpy as np
 from enum import Enum
 from hxnumocr.NetworkFunctions import ReLU, ActivateFunction, softmax
 import cv2
-import os, random, math
-from typing import Callable
+import os, math
 from tqdm import tqdm
 import time
 import configparser
