@@ -5,6 +5,7 @@ from hxnumocr.numrec import OneHotFullLinkNetwork as NumberNet
 from colorama import Fore, Back, Style
 from collections import deque
 import hashlib
+import numba as nb
 
 
 r'''
@@ -130,6 +131,8 @@ def execute_rect(matrix, rect):
 
     return matrix
 
+
+
 def find_all_matches(matrix):
     rows, cols = len(matrix), len(matrix[0])
     matched_rects = []
@@ -173,33 +176,69 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
             # 已经被消除的单元格，跳过检索
             if matrix[i][j] == 0:
                 continue
-            # 确认是否达到最大高度的flag
-            height_max = False
-            for h in range(-i, rows - i + 1):
-                # 行列延申时也判断一下
-                if matrix[i][j] == 0:
-                    continue
-                for w in range(-j, cols - j + 1):
-                    # 一个单元格一定不会成立，直接继续
-                    if (h == 1 and w == 1):
+            # 此处需要决定是先纵向扩展还是先横向扩展
+            h_first = np.random.rand() < 0.5
+
+            # 先纵向扩展的情况
+            if h_first == True:
+                # 确认是否达到最大高度的flag
+                height_max = False
+                for h in range(-i, rows - i + 1):
+                    # 行列延申时也判断一下
+                    if matrix[i][j] == 0:
                         continue
+                    for w in range(-j, cols - j + 1):
+                        # 一个单元格一定不会成立，直接继续
+                        if (h == 1 and w == 1):
+                            continue
 
-                    # 当前搜索的矩形范围及其和
-                    rect = (i,j,h,w)
-                    now_sum = rect_sum(matrix, rect)
+                        # 当前搜索的矩形范围及其和
+                        rect = (i,j,h,w)
+                        now_sum = rect_sum(matrix, rect)
 
-                    # 找到匹配，记载
-                    if now_sum == 10:
-                        matched_rects.append(rect)
-                        execute_rect(matrix, rect)
-                    
-                    # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
-                    if now_sum >= 10:
-                        if w == 1:
-                            height_max = True
+                        # 找到匹配，记载
+                        if now_sum == 10:
+                            matched_rects.append(rect)
+                            execute_rect(matrix, rect)
+                        
+                        # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
+                        if now_sum >= 10:
+                            if w == 1:
+                                height_max = True
+                            break
+                    if height_max == True:
                         break
-                if height_max == True:
-                    break
+            else:
+                # 先横向扩展的情况
+
+                # 确认是否达到最大宽度的Flag
+                width_max = False
+                for w in range(-j, cols - j + 1):
+                    # 行列延申时也判断一下
+                    if matrix[i][j] == 0:
+                        continue
+                    for h in range(-i, rows - i + 1):
+                        # 一个单元格一定不会成立，直接继续
+                        if (h == 1 and w == 1):
+                            continue
+
+                        # 当前搜索的矩形范围及其和
+                        rect = (i,j,h,w)
+                        now_sum = rect_sum(matrix, rect)
+
+                        # 找到匹配，记载
+                        if now_sum == 10:
+                            matched_rects.append(rect)
+                            execute_rect(matrix, rect)
+                        
+                        # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
+                        if now_sum >= 10:
+                            if h == 1:
+                                width_max = True
+                            break
+                    if width_max == True:
+                        break
+
     return matched_rects
 
 # steps结构 [current_matrix, rects, score]
@@ -228,7 +267,7 @@ class Solution:
     def get_hash(self):
         return hashlib.md5(self.current_matrix.tobytes()).hexdigest()
 
-def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True):
+def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True, processing_silent:bool = True):
     origin_solution = Solution(matrix)
     solutions_queue = deque([origin_solution])
 
@@ -262,7 +301,8 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
                 break
             if new_solution.score > best_solution.score:
                 best_solution = new_solution
-                print(f"Calc {calc_count} times, Now Score:{best_solution.score}, Steps:{len(best_solution.rects)} QueueSize:{len(solutions_queue)}")
+                if not processing_silent:
+                    print(f"Calc {calc_count} times, Now Score:{best_solution.score}, Steps:{len(best_solution.rects)} QueueSize:{len(solutions_queue)}")
             # print(new_solution.score, end=' ')
             new_hash = new_solution.get_hash()
             if new_hash in matrix_hashs:
@@ -271,14 +311,16 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
             else:
                 solutions_queue.appendleft(new_solution)
                 matrix_hashs.add(new_hash)
-                print(f"QSize:{len(solutions_queue)}\r", end='')
+                if not processing_silent:
+                    print(f"QSize:{len(solutions_queue)}\r", end='')
         
         if best_solution.is_win():
-            print("Win Solution Found")
+            print(f"Win Solution Found. {best_solution.score} points with {len(best_solution.rects)} Steps")
             break
     if best_solution.is_win() == False:
-        print(f"Only Reach:{best_solution.score}")
-    print(f"Calc {calc_count} times, Now Score:{best_solution.score}, Steps:{len(best_solution.rects)} QueueSize:{len(solutions_queue)}\n")
+        print(f"Only Reach:{best_solution.score} points with {len(best_solution.rects)} Steps")
+    if not processing_silent:
+        print(f"Calc {calc_count} times, Now Score:{best_solution.score}, Steps:{len(best_solution.rects)} QueueSize:{len(solutions_queue)}\n")
 
     return best_solution
 
@@ -290,14 +332,15 @@ def print_steps(solution:Solution, origin_matrix:np.ndarray, direct:bool = True)
             return
 
     display_matrix = np.copy(origin_matrix)
-    for rect in solution.rects:
+    for i, rect in enumerate(solution.rects):
         os.system("cls")
-        print(f"Goal:{solution.score}")
+        print(f"Goal:{solution.score}, {i + 1} / {len(solution.rects)}")
         print_rect_with_color(display_matrix, rect)
         execute_rect(display_matrix, rect)
         cmd = input("Press for next, q to exit: ").strip().lower()
         if cmd == "q":
             return
+    print(f"{Back.GREEN}ALL Finished!{Style.RESET_ALL}")
     
 
 def main():
@@ -322,7 +365,7 @@ def main():
     print(f"Img Recognize : {np.round(time_cost, 2)} s.")
     
     time_st = time.time()
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(6,9),None,True) for i in range(2)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(5,8),None,True) for _ in range(3)]
     time_end = time.time()
     time_cost = time_end - time_st  
 
@@ -330,6 +373,7 @@ def main():
     best_solution = best_solutions[-1]
 
     print(f"Cost: {np.round(time_cost,2)} s. ")
+    input()
 
     print_steps(best_solution, matrix)
     # os.remove(full_file_name)
