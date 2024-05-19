@@ -323,9 +323,9 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
 
     return best_solution
 
-def print_steps(solution:Solution, origin_matrix:np.ndarray, direct:bool = True):
+def print_steps_terminal(solution:Solution, origin_matrix:np.ndarray, direct:bool = True, auto_interval:float = None):
     print(f"Best Score: {solution.score}")
-    if not direct:
+    if not direct and auto_interval == None:
         cmd = input("Press to show step, q to exit: ")
         if cmd == "q":
             return
@@ -336,20 +336,25 @@ def print_steps(solution:Solution, origin_matrix:np.ndarray, direct:bool = True)
         print(f"Goal:{solution.score}, {i + 1} / {len(solution.rects)}")
         print_rect_with_color(display_matrix, rect)
         execute_rect(display_matrix, rect)
-        cmd = input("Press for next, q to exit: ").strip().lower()
-        if cmd == "q":
-            return
+        if auto_interval == None:
+            cmd = input("Press for next, q to exit: ").strip().lower()
+            if cmd == "q":
+                return
+        else:
+            time.sleep(auto_interval)
     print(f"{Back.GREEN}ALL Finished!{Style.RESET_ALL}")
     
 
 def main():
     if os.path.exists("temp") == False:
         os.mkdir("temp")
+        auto_interval = None
 
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
         full_file_name = sys.argv[1]
         dir = full_file_name[:full_file_name.rfind(os.sep)]
         file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
+        auto_interval = True
     else:
         dir = "imgs"
         file_name = input("file name *.png: ").strip()
@@ -361,6 +366,7 @@ def main():
                 full_file_name = full_file_name[1:-1]
             dir = full_file_name[:full_file_name.rfind(os.sep)]
             file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
+            auto_interval = True
 
     
     while True:
@@ -378,7 +384,7 @@ def main():
     print(f"Img Recognize : {np.round(time_cost, 2)} s.")
     
     time_st = time.time()
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(5,9),None,True) for _ in range(3)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(6,11),None,True) for _ in range(2)]
     time_end = time.time()
     time_cost = time_end - time_st  
 
@@ -388,7 +394,9 @@ def main():
     print(f"Cost: {np.round(time_cost,2)} s. ")
     input()
 
-    print_steps(best_solution, matrix)
+    if auto_interval == True:
+        auto_interval = (120 - time_cost - 12) / len(best_solution.rects) 
+    print_steps_terminal(best_solution, matrix, auto_interval=auto_interval)
     # os.remove(full_file_name)
 
 
