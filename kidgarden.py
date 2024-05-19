@@ -343,6 +343,9 @@ def print_steps_terminal(solution:Solution, origin_matrix:np.ndarray, direct:boo
         else:
             time.sleep(auto_interval)
     print(f"{Back.GREEN}ALL Finished!{Style.RESET_ALL}")
+
+def print_steps_window(solution:Solution, origin_matrix:np.ndarray, direct:bool = True, auto_interval:float = None):
+    pass
     
 
 def main():
