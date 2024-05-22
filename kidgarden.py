@@ -16,13 +16,14 @@ r'''
 
 def get_number_grids_from_image(file_name:str, dir:str = "imgs", narrow_rate_single:float = 0.15): 
     r'''
-    从截屏文件中读取划分好的数字网格，每个网格是numpy格式的单色图片
+    从截屏文件中读取划分好的数字网格，每个网格是numpy格式的单色图片,输出格式是一个tuple，里面三个元素，第一个元素是原始图像np.ndarray,第二个是列表是rect列表，第三个也是列表是网格图片列表([rect,...],[nparray,...])
     '''
     full_file_name = dir + os.path.sep + file_name
     if os.path.exists(full_file_name) == False:
         raise FileNotFoundError(f"未找到图片 {full_file_name}")
 
     image = cv2.imread(full_file_name, cv2.IMREAD_GRAYSCALE)
+    image_colored = cv2.imread(full_file_name)
     # 二值化处理
     _, binary = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY)
 
@@ -89,9 +90,10 @@ def get_number_grids_from_image(file_name:str, dir:str = "imgs", narrow_rate_sin
         cv2.putText(img_with_contours, f"{i + 1}", (center_x - 5, center_y + 5), cv2.FONT_HERSHEY_SIMPLEX,1.5, (0,0,255),2)
 
     cv2.imwrite(f"temp/grid_check_{file_name.replace('.','_')}.jpg", img_with_contours)
-
+    
+    number_core_rects = [grid_item[5] for grid_item in sorted_selected_list]
     number_imgs = [binary[grid_item[5][1]:grid_item[5][1] + grid_item[5][3], grid_item[5][0]:grid_item[5][0] + grid_item[5][2]] for grid_item in sorted_selected_list]
-    return number_imgs
+    return (image_colored, number_core_rects, number_imgs)
 
 def build_matrix_from_grid_imgs(number_imgs:list, network_config_dir = "hxnumocr/kd_config"):
     r'''
@@ -106,7 +108,7 @@ def build_matrix_from_grid_imgs(number_imgs:list, network_config_dir = "hxnumocr
     matrix = np.array(numbers, dtype=np.int8).reshape((16,10))
     return matrix
 
-def print_rect_with_color(matrix, rect:tuple):
+def print_rect_with_color_terminal(matrix, rect:tuple):
     in_rect = lambda i,j: i >= rect[0] and i < rect[0] + rect[2] and j >= rect[1] and j < rect[1] + rect[3]
     out_str = ""
     for i in range(len(matrix)):
@@ -334,7 +336,7 @@ def print_steps_terminal(solution:Solution, origin_matrix:np.ndarray, direct:boo
     for i, rect in enumerate(solution.rects):
         os.system("cls")
         print(f"Goal:{solution.score}, {i + 1} / {len(solution.rects)}")
-        print_rect_with_color(display_matrix, rect)
+        print_rect_with_color_terminal(display_matrix, rect)
         execute_rect(display_matrix, rect)
         if auto_interval == None:
             cmd = input("Press for next, q to exit: ").strip().lower()
@@ -379,7 +381,9 @@ def main():
             break
         
     time_st = time.time()
-    number_imgs = get_number_grids_from_image(file_name,dir)
+    narrow_rate_single = 0.15
+    origin_img, number_core_rects, number_imgs = get_number_grids_from_image(file_name,dir,narrow_rate_single=narrow_rate_single)
+    number_core_rects = np.array(number_core_rects, dtype=np.int8).reshape((16,10))
     # os.remove(full_file_name)
     matrix = build_matrix_from_grid_imgs(number_imgs)
     time_end = time.time()
@@ -393,6 +397,8 @@ def main():
 
     best_solutions.sort(key=lambda x: (x.score, 0 - len(x.rects)))
     best_solution = best_solutions[-1]
+
+    # 先画出全部框框做实验
 
     print(f"Cost: {np.round(time_cost,2)} s. ")
     input()
