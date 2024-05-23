@@ -325,9 +325,10 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
 
     return best_solution
 
-def print_steps_terminal(solution:Solution, origin_matrix:np.ndarray, direct:bool = True, auto_interval:float = None):
+# 在终端中输出步骤
+def print_steps_terminal(solution:Solution, origin_matrix:np.ndarray, auto_start:bool = False, auto_interval_ms:float = 0):
     print(f"Best Score: {solution.score}")
-    if not direct and auto_interval == None:
+    if not auto_start and auto_interval_ms <= 0:
         cmd = input("Press to show step, q to exit: ")
         if cmd == "q":
             return
@@ -338,32 +339,91 @@ def print_steps_terminal(solution:Solution, origin_matrix:np.ndarray, direct:boo
         print(f"Goal:{solution.score}, {i + 1} / {len(solution.rects)}")
         print_rect_with_color_terminal(display_matrix, rect)
         execute_rect(display_matrix, rect)
-        if auto_interval == None:
+        if auto_interval_ms <= 0:
             cmd = input("Press for next, q to exit: ").strip().lower()
             if cmd == "q":
                 return
         else:
-            time.sleep(auto_interval)
+            time.sleep(auto_interval_ms / 1000)
     print(f"{Back.GREEN}ALL Finished!{Style.RESET_ALL}")
 
-def print_steps_window(solution:Solution, origin_matrix:np.ndarray, direct:bool = True, auto_interval:float = None):
+# 生成显示步骤用的图像集合
+def gen_steps_imgs(origin_img:np.ndarray, solution:Solution, number_core_rects:list, narrow_rate_single:float) -> tuple:
+    r'''
+    返回值为tuple(原始图像拷贝, [步骤图像], 结尾图像)
+    '''
+    # 原始图像拷贝作为基底
+    origin_cp = origin_img.copy()
+    
+    # 存放每一步图像
+    step_imgs = []
+
+    # 计算为填补出血，每边朝每一侧应该增加的边长,暂定增加到原尺寸后，向外增加百分之5
+    number_img_width = number_core_rects[0][2]
+    n_rate_recover = int((number_img_width) / (1 - narrow_rate_single * 2) * (0.05 + narrow_rate_single))
+
+    erased_last_step_img = origin_cp.copy()
+    for i, step in enumerate(solution.rects):
+        # 本次步骤中，左上角的数字方块坐标(y,x,h,w)
+        left_top_rect = number_core_rects[step[0]][step[1]]
+        # 本步骤中，右下角的数字方块坐标
+        right_bottom_rect = number_core_rects[step[0] + step[2] - 1][step[1] + step[3] - 1]
+        # 本次操作矩形区域的左上和右下的坐标(y,x, y2,x2)
+        lt_y,lt_x,rb_y,rb_x = *left_top_rect[:2], right_bottom_rect[0] + right_bottom_rect[2], right_bottom_rect[1] + right_bottom_rect[3]
+
+        # 预备画红框的图像，需要是上一步擦除好的图像的拷贝
+        red_rect_temp = erased_last_step_img.copy()
+
+        # 绘制指示本步骤操作的红框
+        red_rect_temp = cv2.rectangle(red_rect_temp,(lt_y - n_rate_recover, lt_x - n_rate_recover), (rb_y + n_rate_recover, rb_x + n_rate_recover), (0,0,255), thickness=number_img_width // 4)
+        step_imgs.append(red_rect_temp)
+
+        # 绘制总分提示和步骤提示
+        text_pos = (number_core_rects[0][0] // 2, 10)
+        cv2.putText(red_rect_temp, f"目标分数：{solution.score}, 步骤：{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
+
+        # 绘制本步抹消之后的图像
+        erased_last_step_img = cv2.rectangle(erased_last_step_img,(lt_y - n_rate_recover, lt_x - n_rate_recover), (rb_y + n_rate_recover, rb_x + n_rate_recover), (88,122,61), thickness=-1)
+
+    # 绘制end图像
+    cv2.putText(erased_last_step_img, f"目标分数：{solution.score}, 步骤：{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
+
+    return (origin_cp, step_imgs, erased_last_step_img)
+
+
+# 使用opencv的图像显示输出步骤
+def print_steps_cv2(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0, auto_start:bool = False):
+    pass
+
+# 使用QT的悬浮半透明窗口显示输出步骤
+def print_steps_hover(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0, auto_start:bool = False):
     pass
     
 
 def main():
+    auto_interval = True
+    user_disp_method = input("展示方式(t（默认）:终端,c:OpenCV窗口,h:悬浮窗口):").strip().lower()
+    if user_disp_method not in ["c","t","h"]:
+        user_disp_method = "t"
+
     if os.path.exists("temp") == False:
         os.mkdir("temp")
-        auto_interval = None
-
+        
+    # 从参数中读取文件名的情况
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
         full_file_name = sys.argv[1]
         dir = full_file_name[:full_file_name.rfind(os.sep)]
         file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
         auto_interval = True
     else:
+        # 等待输入文件名的情况，如不输入文件名后缀，则默认是imgs文件夹下的.png文件，如输入，则视为完整路径进行检索(相对路径或绝对路径)
         dir = "imgs"
-        file_name = input("file name *.png: ").strip()
-        if "." not in file_name:
+
+        # 直接回车，则是等待剪贴板
+        file_name = input("file name *.png, Enter to wait Clipboard: ").strip()
+        if file_name == "":
+            pass
+        elif "." not in file_name:
             full_file_name = f"{dir}{os.path.sep}{file_name}.png"
         else:
             full_file_name = file_name
@@ -371,41 +431,52 @@ def main():
                 full_file_name = full_file_name[1:-1]
             dir = full_file_name[:full_file_name.rfind(os.sep)]
             file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
-            auto_interval = True
+        auto_interval = True
 
-    
+    # 如果没有文件名，则等待剪贴板，有文件名则等待文件
     while True:
         if os.path.exists(full_file_name) == False:
             time.sleep(0.1)
         else:
             break
-        
+
+    # 记录图像识别花费的时间
     time_st = time.time()
+    
+    # 单个数字取图像时对边缘的padding
     narrow_rate_single = 0.15
+
+    # 从原始图像中分割出按顺序排列的矩形区域、图像数字
     origin_img, number_core_rects, number_imgs = get_number_grids_from_image(file_name,dir,narrow_rate_single=narrow_rate_single)
     number_core_rects = np.array(number_core_rects, dtype=np.int8).reshape((16,10))
-    # os.remove(full_file_name)
+    
+    # 识别所有图像数字区域的数字，排列成和游戏一致的矩阵
     matrix = build_matrix_from_grid_imgs(number_imgs)
     time_end = time.time()
     time_cost = time_end - time_st
     print(f"Img Recognize : {np.round(time_cost, 2)} s.")
     
+    # 记录寻找解集的时间
     time_st = time.time()
+    # 随机查找几个解
     best_solutions = [find_best_solution(matrix, lambda:np.random.randint(6,11),None,True) for _ in range(2)]
     time_end = time.time()
     time_cost = time_end - time_st  
 
-    best_solutions.sort(key=lambda x: (x.score, 0 - len(x.rects)))
+    # 将解集排序，寻找分数最高、步数最少的解作为最优解
+    best_solutions.sort(key=lambda x: (-x.score, len(x.rects)))
     best_solution = best_solutions[-1]
 
-    # 先画出全部框框做实验
-
-    print(f"Cost: {np.round(time_cost,2)} s. ")
-    input()
-
+    # 计算自动步骤情况下，每两个步骤的合理间隔
     if auto_interval == True:
-        auto_interval = (120 - time_cost - 12) / len(best_solution.rects) 
-    print_steps_terminal(best_solution, matrix, auto_interval=auto_interval)
+        auto_interval = int((120 - time_cost - 12) / len(best_solution.rects) * 1000)
+    
+    if user_disp_method == "t":
+        print_steps_terminal(best_solution, matrix, auto_interval_ms=auto_interval)
+    elif user_disp_method == "c":
+        print_steps_cv2()
+    elif user_disp_method == "h":
+        print_steps_hover()
     # os.remove(full_file_name)
 
 
