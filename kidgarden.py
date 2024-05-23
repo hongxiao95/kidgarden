@@ -6,6 +6,9 @@ from hxnumocr.numrec import OneHotFullLinkNetwork as NumberNet
 from colorama import Fore, Back, Style
 from collections import deque
 import hashlib
+from PIL import Image as PilImage
+from PIL import ImageGrab as PilImageGrab
+import win32clipboard
 
 r'''
 1. 读取图片
@@ -359,7 +362,7 @@ def gen_steps_imgs(origin_img:np.ndarray, solution:Solution, number_core_rects:l
     step_imgs = []
 
     # 计算为填补出血，每边朝每一侧应该增加的边长,暂定增加到原尺寸后，向外增加百分之5
-    number_img_width = number_core_rects[0][2]
+    number_img_width = number_core_rects[0][0][2]
     n_rate_recover = int((number_img_width) / (1 - narrow_rate_single * 2) * (0.05 + narrow_rate_single))
 
     erased_last_step_img = origin_cp.copy()
@@ -379,7 +382,7 @@ def gen_steps_imgs(origin_img:np.ndarray, solution:Solution, number_core_rects:l
         step_imgs.append(red_rect_temp)
 
         # 绘制总分提示和步骤提示
-        text_pos = (number_core_rects[0][0] // 2, 10)
+        text_pos = (number_core_rects[0][0][0] // 2, 10)
         cv2.putText(red_rect_temp, f"目标分数：{solution.score}, 步骤：{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
 
         # 绘制本步抹消之后的图像
@@ -387,13 +390,46 @@ def gen_steps_imgs(origin_img:np.ndarray, solution:Solution, number_core_rects:l
 
     # 绘制end图像
     cv2.putText(erased_last_step_img, f"目标分数：{solution.score}, 步骤：{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
+    cv2.putText(erased_last_step_img, "您已完成所有匹配！", (5, len(erased_last_step_img) // 2), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 4)
 
     return (origin_cp, step_imgs, erased_last_step_img)
 
+def clear_clipboard():
+    r'''
+    清空剪贴板
+    '''
+    try:
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.CloseClipboard()
+    except Exception:
+        pass
+    finally:
+        try:
+            win32clipboard.CloseClipboard
+        except Exception:
+            pass
+
 
 # 使用opencv的图像显示输出步骤
-def print_steps_cv2(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0, auto_start:bool = False):
-    pass
+def print_steps_cv2(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0, auto_start:bool = False, scale:float = 1):
+    auto_interval_ms = max(0, auto_interval_ms)
+
+    show_title = "steps"
+
+    img_show = cv2.resize(start_img, (int(len(start_img[0]) * scale), int(len(start_img) * scale)))
+    cv2.imshow(show_title, img_show)
+    cv2.waitKey(1000 if auto_start else 0)
+
+    for step_img in step_imgs:
+        img_show = cv2.resize(step_img, (int(len(step_img[0]) * scale),int(len(step_img) * scale)))
+        cv2.imshow(show_title, img_show)
+        cv2.waitKey(auto_interval_ms)
+    
+    img_show = cv2.resize(end_img, (int(len(end_img[0]) * scale), int(len(end_img) * scale)))
+    cv2.imshow(show_title, img_show)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 # 使用QT的悬浮半透明窗口显示输出步骤
 def print_steps_hover(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0, auto_start:bool = False):
@@ -405,6 +441,12 @@ def main():
     user_disp_method = input("展示方式(t（默认）:终端,c:OpenCV窗口,h:悬浮窗口):").strip().lower()
     if user_disp_method not in ["c","t","h"]:
         user_disp_method = "t"
+
+    auto_start = input("自动开始展示步骤吗？(y(default)/n):").strip().lower()
+    if auto_start == "y" or auto_start == "":
+        auto_start = True
+    else:
+        auto_start = False
 
     if os.path.exists("temp") == False:
         os.mkdir("temp")
@@ -433,12 +475,30 @@ def main():
             file_name = full_file_name[full_file_name.rfind(os.sep) + 1:]
         auto_interval = True
 
-    # 如果没有文件名，则等待剪贴板，有文件名则等待文件
-    while True:
-        if os.path.exists(full_file_name) == False:
-            time.sleep(0.1)
-        else:
-            break
+    # 如果有文件名，则等待剪贴板，没有文件名则等待文件
+    if file_name != "":
+        print("等待输入的文件存在...")
+        while True:
+            if os.path.exists(full_file_name) == False:
+                time.sleep(0.3)
+            else:
+                break
+    else:
+        print("等待剪贴板中的截图中...")
+        dir = "temp"
+        file_name = f"clipboardimage_{str(int(time.time()))}.png"
+        clear_clipboard()
+        pil_img = None
+        while True:
+            pil_img = PilImageGrab.grabclipboard()
+            if isinstance(pil_img, PilImage.Image):
+                break
+            time.sleep(0.3)
+        print("等候到剪贴板截图")
+        cv_img = np.array(pil_img)
+        cv_img = cv2.cvtColor(cv_img, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(f"{dir}{os.path.sep}{file_name}", cv_img)
+
 
     # 记录图像识别花费的时间
     time_st = time.time()
@@ -448,7 +508,7 @@ def main():
 
     # 从原始图像中分割出按顺序排列的矩形区域、图像数字
     origin_img, number_core_rects, number_imgs = get_number_grids_from_image(file_name,dir,narrow_rate_single=narrow_rate_single)
-    number_core_rects = np.array(number_core_rects, dtype=np.int8).reshape((16,10))
+    number_core_rects = np.array(number_core_rects).reshape((16,10,4))
     
     # 识别所有图像数字区域的数字，排列成和游戏一致的矩阵
     matrix = build_matrix_from_grid_imgs(number_imgs)
@@ -465,18 +525,24 @@ def main():
 
     # 将解集排序，寻找分数最高、步数最少的解作为最优解
     best_solutions.sort(key=lambda x: (-x.score, len(x.rects)))
-    best_solution = best_solutions[-1]
+    best_solution = best_solutions[0]
 
     # 计算自动步骤情况下，每两个步骤的合理间隔
     if auto_interval == True:
         auto_interval = int((120 - time_cost - 12) / len(best_solution.rects) * 1000)
     
+    # 如果不是自动开始，这里停一下
+    if auto_start == False:
+        input("按回车开始展示步骤...")
+
     if user_disp_method == "t":
         print_steps_terminal(best_solution, matrix, auto_interval_ms=auto_interval)
-    elif user_disp_method == "c":
-        print_steps_cv2()
-    elif user_disp_method == "h":
-        print_steps_hover()
+    else:
+        st_img, step_imgs, end_img = gen_steps_imgs(origin_img, best_solution, number_core_rects, narrow_rate_single)
+        if user_disp_method == "c":
+            print_steps_cv2(st_img, step_imgs, end_img, auto_interval, False)
+        elif user_disp_method == "h":
+            print_steps_hover()
     # os.remove(full_file_name)
 
 
