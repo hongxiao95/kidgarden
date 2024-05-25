@@ -9,6 +9,10 @@ import hashlib
 from PIL import Image as PilImage
 from PIL import ImageGrab as PilImageGrab
 import win32clipboard
+from qtwindow import StepWindow
+from PyQt5.QtWidgets import QApplication
+from threading import Thread
+
 
 r'''
 1. 读取图片
@@ -48,9 +52,12 @@ def get_number_grids_from_image(file_name:str, dir:str = "imgs", narrow_rate_sin
         rect_area = out_rects[i][2] * out_rects[i][3]
         contour_area = cv2.contourArea(all_contours[i])
         
-        if np.abs(rect_area - contour_area) / contour_area < 0.15 and np.abs(out_rects[i][2] - out_rects[i][3]) / np.min(out_rects[i][2:,]) < 0.1:
-            less_rect = get_less_rect(out_rects[i])
-            rect_like_lists.append([all_contours[i], out_rects[i], rect_to_contour(out_rects[i]), contour_area, rect_area, less_rect, rect_to_contour(less_rect), less_rect[2] * less_rect[3]])
+        try:
+            if np.abs(rect_area - contour_area) / contour_area < 0.15 and np.abs(out_rects[i][2] - out_rects[i][3]) / np.min(out_rects[i][2:,]) < 0.1:
+                less_rect = get_less_rect(out_rects[i])
+                rect_like_lists.append([all_contours[i], out_rects[i], rect_to_contour(out_rects[i]), contour_area, rect_area, less_rect, rect_to_contour(less_rect), less_rect[2] * less_rect[3]])
+        except ZeroDivisionError:
+            print("Div 0 Error")
 
     # 按照轮廓内面积排序
     rect_like_lists.sort(key = lambda x: x[3])
@@ -134,8 +141,6 @@ def execute_rect(matrix, rect):
     matrix[y : y + h, x : x + w] = 0
 
     return matrix
-
-
 
 def find_all_matches(matrix):
     rows, cols = len(matrix), len(matrix[0])
@@ -383,14 +388,14 @@ def gen_steps_imgs(origin_img:np.ndarray, solution:Solution, number_core_rects:l
 
         # 绘制总分提示和步骤提示
         text_pos = (number_core_rects[0][0][0] // 2, 10)
-        cv2.putText(red_rect_temp, f"目标分数：{solution.score}, 步骤：{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
+        cv2.putText(red_rect_temp, f"Goal:{solution.score}, Step:{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
 
         # 绘制本步抹消之后的图像
         erased_last_step_img = cv2.rectangle(erased_last_step_img,(lt_y - n_rate_recover, lt_x - n_rate_recover), (rb_y + n_rate_recover, rb_x + n_rate_recover), (88,122,61), thickness=-1)
 
     # 绘制end图像
-    cv2.putText(erased_last_step_img, f"目标分数：{solution.score}, 步骤：{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
-    cv2.putText(erased_last_step_img, "您已完成所有匹配！", (5, len(erased_last_step_img) // 2), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 4)
+    cv2.putText(erased_last_step_img, f"Goal：{solution.score}, Step:{i + 1}/{len(solution.rects)}",text_pos[::-1], cv2.FONT_HERSHEY_SIMPLEX, 1.5,(0,0,255),2)
+    cv2.putText(erased_last_step_img, "All Finish!", (5, len(erased_last_step_img) // 2), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 4)
 
     return (origin_cp, step_imgs, erased_last_step_img)
 
@@ -433,7 +438,35 @@ def print_steps_cv2(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, au
 
 # 使用QT的悬浮半透明窗口显示输出步骤
 def print_steps_hover(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0, auto_start:bool = False):
+
+    app = QApplication([])
+    step_window = StepWindow(len(start_img[0]), len(start_img))
+    step_window.show()
+    disp_control_thread = Thread(target=take_charge_from_qt_display, args=(step_window, start_img, step_imgs, end_img, auto_interval_ms))
+    disp_control_thread.daemon = True
+    disp_control_thread.start()
+    app.exec_()
+    print("Qt终止")
+    disp_control_thread.join()
     pass
+
+def take_charge_from_qt_display(step_window:StepWindow, start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0):
+    time.sleep(0.5)
+    step_window.display_img(start_img)
+    time.sleep(1)
+    if step_window.should_start == False:
+        print("请点击导航窗格并按回车键开始")
+        while step_window.should_start == False:
+            time.sleep(0.2)
+            print("Waiting for Enter...\r", end='')
+    for img in step_imgs:
+        if step_window.isVisible():
+            step_window.display_img(img)
+            time.sleep(auto_interval_ms / 1000)
+    
+    step_window.display_img(end_img)
+
+    return
     
 
 def main():
@@ -519,7 +552,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(6,11),None,True) for _ in range(2)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),None,True) for _ in range(3)]
     time_end = time.time()
     time_cost = time_end - time_st  
 
@@ -542,7 +575,7 @@ def main():
         if user_disp_method == "c":
             print_steps_cv2(st_img, step_imgs, end_img, auto_interval, False)
         elif user_disp_method == "h":
-            print_steps_hover()
+            print_steps_hover(st_img, step_imgs, end_img, auto_interval, auto_start)
     # os.remove(full_file_name)
 
 
