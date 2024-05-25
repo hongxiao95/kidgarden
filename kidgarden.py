@@ -165,6 +165,39 @@ def find_all_matches(matrix):
                     break
     return matched_rects
 
+# 生成正负交替的range
+def gen_cross_double_range(left_stop:int, right_stop:int, side_first:int = 0):
+    r'''
+    side_first < 0，负数优先, > 0 正数优先, == 0 随机决定优先
+    '''
+    if side_first == 0:
+        side_first = -1 if np.random.rand() < 0.5 else 1
+
+    res = []
+    for i in range(1, max(left_stop, right_stop)):
+        if side_first > 0:
+            if i < right_stop:
+                res.append(i)
+            if i < left_stop:
+                res.append(-i)
+        else:
+            if i < left_stop:
+                res.append(-i)
+            if i < right_stop:
+                res.append(i)
+    return res
+
+# 修正宽高为负数的矩形区域
+def fix_rect(y, x, h, w):
+    if h < 0:
+        y -= h
+        h += 1
+    if w < 0:
+        x -= w
+        w += 1
+    return (y, x, h, w)
+
+
 def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
     r'''
     此方法和上一方法的区别在于，此方法寻找的是在不重叠情况下， 一次可以并行消除的所有区域，这样虽然压缩了可能性，但是能有效剪枝
@@ -192,27 +225,31 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
             if h_first == True:
                 # 确认是否达到最大高度的flag
                 height_max = False
-                for h in range(-i, rows - i + 1):
+                h_range = gen_cross_double_range(i + 1, rows - i + 1)
+                for h_index, h in enumerate(h_range):
                     # 行列延申时也判断一下
                     if matrix[i][j] == 0:
                         break
-                    for w in range(-j, cols - j + 1):
+                    w_range = gen_cross_double_range(j + 1, cols - j + 1)
+                    for w_index, w in enumerate(w_range):
                         # 一个单元格一定不会成立，直接继续
                         if (h == 1 and w == 1):
                             continue
 
                         # 当前搜索的矩形范围及其和
-                        rect = (i,j,h,w)
+                        rect = fix_rect(i,j,h,w)
                         now_sum = rect_sum(matrix, rect)
 
                         # 找到匹配，记载
                         if now_sum == 10:
                             matched_rects.append(rect)
                             execute_rect(matrix, rect)
+                            height_max = True
+                            break
                         
-                        # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
-                        if now_sum >= 10:
-                            if w == 1:
+                        # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束,注意，必须是正负项都超出才是超出
+                        if now_sum >= 10 and ( True or w_index == len(w_range) - 1 or np.abs(w) > np.abs(w_range[w_index + 1])):
+                            if w == 1 and (True or h_index == len(h_range) - 1 or np.abs(h) > np.abs(h_range[h_index + 1])):
                                 height_max = True
                             break
                     if height_max == True:
@@ -222,17 +259,19 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
 
                 # 确认是否达到最大宽度的Flag
                 width_max = False
-                for w in range(-j, cols - j + 1):
+                w_range = gen_cross_double_range(j + 1, cols - j + 1)
+                for w_index, w in enumerate(w_range):
                     # 行列延申时也判断一下
                     if matrix[i][j] == 0:
                         break
-                    for h in range(-i, rows - i + 1):
+                    h_range = gen_cross_double_range(i + 1, rows - i + 1)
+                    for h_index, h in enumerate(h_range):
                         # 一个单元格一定不会成立，直接继续
                         if (h == 1 and w == 1):
                             continue
 
                         # 当前搜索的矩形范围及其和
-                        rect = (i,j,h,w)
+                        rect = fix_rect(i,j,h,w)
                         now_sum = rect_sum(matrix, rect)
 
                         # 找到匹配，记载
@@ -240,10 +279,12 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                             # TODO:允许从空格子开始，并在最后消除空行空列
                             matched_rects.append(rect)
                             execute_rect(matrix, rect)
+                            width_max = True
+                            break
                         
                         # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
-                        if now_sum >= 10:
-                            if h == 1:
+                        if now_sum >= 10 and (True or h_index == len(h_range) - 1 or np.abs(h) > np.abs(h_range[h_index + 1])):
+                            if h == 1 and (True or w_index == len(w_range) - 1 or np.abs(w) > np.abs(w_range[w_index + 1])):
                                 width_max = True
                             break
                     if width_max == True:
@@ -278,6 +319,8 @@ class Solution:
         return hashlib.md5(self.current_matrix.tobytes()).hexdigest()
 
 def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True, processing_silent:bool = True):
+    if not processing_silent:
+        print("Processing In")
     origin_solution = Solution(matrix)
     solutions_queue = deque([origin_solution])
 
@@ -300,10 +343,18 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
             new_solution = solution.clone()
             
             # 如果设置了主动减除一次操作序列的后半部分
-            if limit_use_rects != None and np.random.rand() < 0.5:
-                if limit_use_rects < 1:
-                    limit_use_rects = max(1, int(len(rects) * limit_use_rects))
-                rects = rects[:limit_use_rects]
+            using_limit_use_rects = 0
+            if limit_use_rects != None and np.random.rand() < 0.8 and len(rects) > 2:
+                try:
+                    if limit_use_rects < 1:
+                        # print(f"Before({limit_use_rects}, {len(rects)})")
+                        using_limit_use_rects = max(1, min(len(rects), int(len(rects) * limit_use_rects) + 1))
+                    else:
+                        using_limit_use_rects = limit_use_rects
+                    rects = rects[:np.random.randint(using_limit_use_rects, len(rects) + 1)]
+                except ValueError:
+                    print(f"({using_limit_use_rects}, {len(rects)})")
+                    sys.exit(0)
             for rect in rects:
                 new_solution.add_step(rect)
             if new_solution.is_win():
@@ -554,7 +605,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),None,True) for _ in range(10)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),0.7,True,user_disp_method != "t") for _ in range(10)]
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")
@@ -572,7 +623,7 @@ def main():
         input("按回车开始展示步骤...")
 
     if user_disp_method == "t":
-        print_steps_terminal(best_solution, matrix, auto_interval_ms=auto_interval)
+        print_steps_terminal(best_solution, matrix, auto_interval_ms=0)
     else:
         st_img, step_imgs, end_img = gen_steps_imgs(origin_img, best_solution, number_core_rects, narrow_rate_single)
         if user_disp_method == "c":
