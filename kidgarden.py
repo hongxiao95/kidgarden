@@ -195,7 +195,7 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                 for h in range(-i, rows - i + 1):
                     # 行列延申时也判断一下
                     if matrix[i][j] == 0:
-                        continue
+                        break
                     for w in range(-j, cols - j + 1):
                         # 一个单元格一定不会成立，直接继续
                         if (h == 1 and w == 1):
@@ -225,7 +225,7 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                 for w in range(-j, cols - j + 1):
                     # 行列延申时也判断一下
                     if matrix[i][j] == 0:
-                        continue
+                        break
                     for h in range(-i, rows - i + 1):
                         # 一个单元格一定不会成立，直接继续
                         if (h == 1 and w == 1):
@@ -237,6 +237,7 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
 
                         # 找到匹配，记载
                         if now_sum == 10:
+                            # TODO:允许从空格子开始，并在最后消除空行空列
                             matched_rects.append(rect)
                             execute_rect(matrix, rect)
                         
@@ -499,7 +500,8 @@ def main():
         if file_name == "":
             pass
         elif "." not in file_name:
-            full_file_name = f"{dir}{os.path.sep}{file_name}.png"
+            file_name = file_name + ".png"
+            full_file_name = f"{dir}{os.path.sep}{file_name}"
         else:
             full_file_name = file_name
             if full_file_name.startswith('"'):
@@ -552,9 +554,10 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),None,True) for _ in range(3)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),None,True) for _ in range(10)]
     time_end = time.time()
     time_cost = time_end - time_st  
+    print(f"总消耗:{np.round(time_cost, 2)}s")
 
     # 将解集排序，寻找分数最高、步数最少的解作为最优解
     best_solutions.sort(key=lambda x: (-x.score, len(x.rects)))
