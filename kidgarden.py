@@ -586,9 +586,24 @@ def take_charge_from_qt_display(step_window:StepWindow, start_img:np.ndarray, st
 
     return
 
-def concurrent_find_best_solultion(matrix:np.ndarray, get_branchs = lambda : 2, limit_use_rects: int = None, random_search: bool = True, processing_silent: bool = True, use_c_dll: bool = True, c_dll_mthreads: bool = True) -> Solution:
-    pass
+def concurrent_find_best_solultion(matrix:np.ndarray, get_branchs = lambda : 2, limit_use_rects: int = None, random_search: bool = True, processing_silent: bool = True, use_c_dll: bool = True, c_dll_mthreads: bool = True, threads_count:int = 1, thread_pool_size:int = 0) -> list[Solution]:
+    solutions = list()
+
+    if thread_pool_size <= 0:
+        cpu_count = os.cpu_count()
+        if cpu_count > 7:
+            thread_pool_size = cpu_count // 2
     
+    with futures.ThreadPoolExecutor(max_workers=thread_pool_size) as thread_pool:
+        tasks = [thread_pool.submit(find_best_solution, *(matrix, get_branchs, limit_use_rects, random_search, processing_silent, use_c_dll, c_dll_mthreads)) for _ in range(threads_count)]
+
+        for future in futures.as_completed(tasks):
+            try:
+                solutions.append(future.result())
+            except Exception:
+                print("Concurrent Error")
+        
+    return solutions
 
 def main():
     auto_interval = True
@@ -674,7 +689,9 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(2,3),4,True,user_disp_method != "t", use_c_dll=True, c_dll_mthreads=True) for _ in range(15)]
+    best_solutions = concurrent_find_best_solultion(matrix, lambda:np.random.randint(12,24),0.8,True,user_disp_method != "td", use_c_dll=True, c_dll_mthreads=True, threads_count=32)
+    # best_solutions = [find_best_solution(matrix, lambda:np.random.randint(2,3),4,True,user_disp_method != "t", use_c_dll=True, c_dll_mthreads=True) for _ in range(15)]
+
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")
