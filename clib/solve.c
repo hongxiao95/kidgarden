@@ -134,8 +134,14 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
     
     srand(getseeds());
     int* matrix = (int*)malloc(sizeof(int) * cols * rows);
+    for (size_t i = 0; i < rows * cols; i++)
+    {
+        matrix[i] = origin_matrix[i];
+    }
+    
     //最多只可能存在方块数一半的匹配
-    int rects_max_count = cols * rows / 2 + 1;
+    int rects_max_count = (cols * rows) / 2 + 1;
+    printf("rects max : %d\n", rects_max_count);
     int** matched_rects = (int**)malloc(sizeof(int*) * rects_max_count);
     int picked_rect_count = 0;
 
@@ -143,7 +149,7 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
     int* row_list = NULL;
     int* col_list = NULL;
 
-    // 应当传入数组变量的地址
+    // 初始化range应当传入数组变量的地址
     init_range(&row_list, 0 ,rows);
     init_range(&col_list, 0, cols);
 
@@ -151,6 +157,7 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
         shuffle(row_list, rows);
         shuffle(col_list, cols);
     }
+    
 
     for(int _i = 0; _i < rows; _i++){
         int i = row_list[_i];
@@ -173,7 +180,13 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                 //建立搜索的高度范围
                 int* h_range = NULL;
                 int h_range_len = gen_cross_double_range(&h_range, i + 1, rows - i + 1,0);
-
+                // printf("\nfor i:%d, j:%d, h_range_len: %d, has h:", i, j, h_range_len);
+                // for (size_t hi = 0; hi < h_range_len; hi++)
+                // {
+                //     printf("%d, ", h_range[hi]);
+                // }
+                // printf("\n");
+                
                 for(int h_dlt_index = 0; h_dlt_index < h_range_len; h_dlt_index++){
                     int h = h_range[h_dlt_index];
                     // 行列延申时也判断是否以空格子起步
@@ -184,6 +197,12 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                     // 建立搜索的宽度范围
                     int* w_range = NULL;
                     int w_range_len = gen_cross_double_range(&w_range, j + 1, cols - j + 1, 0);
+                    // printf("\nfor i:%d, j:%d, w_range_len: %d, has w:", i, j, w_range_len);
+                    // for (size_t wi = 0; wi < w_range_len; wi++)
+                    // {
+                    //     printf("%d, ", w_range[wi]);
+                    // }
+                    // printf("\n");
                     for(int w_dlt_index = 0; w_dlt_index < w_range_len; w_dlt_index++){
                         int w = w_range[w_dlt_index];
 
@@ -191,22 +210,24 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                             continue;
                         }
 
-                        printf("pre hw fix\n");
+                        // printf("pre hw fix\n");
+                        printf("before fix: (%d, %d, %d, %d) -> ", i, j, h, w);
                         int* rect = fix_rect(i, j, h, w);
+                        printf("after fix: (%d, %d, %d, %d)\n\n", rect[0], rect[1], rect[2], rect[3]);
                         int now_sum = sum_rect(matrix, cols, rect);
-                        printf("hw sum\n");
+                        // printf("hw sum\n");
 
                         if(now_sum == 10){
                             matched_rects[picked_rect_count++] = rect;
-                            printf("pre hw exec\n");
+                            // printf("pre hw exec\n");
                             execute_rect(matrix, cols, rect);
-                            printf("hw exec\n");
+                            // printf("hw exec\n");
                             height_max = true;
                             break;
                         }else{
-                            printf("pre hw free rect\n");
+                            // printf("pre hw free rect\n");
                             free(rect);
-                            printf("hw free rect\n");
+                            // printf("hw free rect\n");
                         }
 
                         if(now_sum >= 10 && (w_dlt_index == w_range_len - 1 || abs(w) < abs(w_range[w_dlt_index + 1]))){
@@ -249,22 +270,22 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                             continue;
                         }
 
-                        printf("pre wh fix\n");
+                        // printf("pre wh fix\n");
                         int* rect = fix_rect(i, j, h, w);
                         int now_sum = sum_rect(matrix, cols, rect);
-                        printf("wh sum\n");
+                        // printf("wh sum\n");
 
                         if(now_sum == 10){
                             matched_rects[picked_rect_count++] = rect;
-                            printf("pre wh exec\n");
+                            // printf("pre wh exec\n");
                             execute_rect(matrix, cols, rect);
-                            printf("wh exec\n");
+                            // printf("wh exec\n");
                             height_max = true;
                             break;
                         }else{
-                            printf("pre wh free rect\n");
+                            // printf("pre wh free rect\n");
                             free(rect);
-                            printf("wh free rect\n");
+                            // printf("wh free rect\n");
                         }
 
                         if(now_sum >= 10 && (h_dlt_index == h_range_len - 1 || abs(h) < abs(h_range[h_dlt_index + 1]))){
@@ -298,9 +319,22 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
 }
 
 int main(int argc, char** argv){
-    int* array = (int*)malloc(sizeof(int) * 160);
+    int array[160] = {2, 5, 9, 9, 2, 1, 8, 4, 2, 9, 5, 4, 9, 5, 3, 8, 2, 9, 6, 9, 2, 9, 7, 8, 6, 3, 3, 8, 7, 6, 8, 8, 9, 2, 3, 1, 6, 8, 9, 5, 2, 2, 5, 7, 2, 4, 3, 9, 5, 5, 7, 3, 8, 1, 6, 7, 8, 7, 3, 1, 7, 8, 6, 1, 2, 5, 1, 8, 1, 4, 4, 3, 7, 7, 6, 8, 1, 1, 6, 2, 8, 4, 9, 4, 7, 7, 1, 1, 6, 8, 2, 4, 5, 3, 9, 7, 5, 3, 6, 9, 4, 2, 5, 1, 9, 1, 6, 5, 1, 7, 4, 1, 4, 6, 3, 7, 9, 9, 9, 1, 4, 5, 9, 3, 1, 2, 7, 4, 3, 5, 3, 9, 1, 6, 2, 2, 4, 3, 8, 3, 4, 4, 3, 4, 4, 1, 9, 4, 2, 6, 4, 3, 5, 1, 7, 6, 8, 1, 5, 9};
+    
+    int** rects = NULL;
 
-    printf("len: %zd", sizeof(array));
+    rects = find_all_seq_matches(array, 16, 10, 1);
+    printf("finish");
+    int check_value = rects[0][0];
+    int index = 0;
+    while(check_value != -1){
+        for (size_t i = 0; i < 4; i++)
+        {
+            printf("%d,", rects[index][i]);
+        }
+        printf("\n");
+        check_value = rects[++index][0];
+    }
 
     free(array);
 

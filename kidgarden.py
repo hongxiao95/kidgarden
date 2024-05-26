@@ -193,11 +193,11 @@ def gen_cross_double_range(left_stop:int, right_stop:int, side_first:int = 0):
 # 修正宽高为负数的矩形区域
 def fix_rect(y, x, h, w):
     if h < 0:
-        y -= h
-        h += 1
+        y -= -h
+        h = -h + 1
     if w < 0:
-        x -= w
-        w += 1
+        x -= -w
+        w = -w + 1
     return (y, x, h, w)
 
 
@@ -634,7 +634,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),0.7,True,user_disp_method != "t", use_c_dll=True) for _ in range(10)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),0.7,True,user_disp_method != "t", use_c_dll=False) for _ in range(10)]
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")
