@@ -12,6 +12,8 @@ import win32clipboard
 from qtwindow import StepWindow
 from PyQt5.QtWidgets import QApplication
 from threading import Thread
+import ctypes
+from ctypes import CDLL
 
 
 r'''
@@ -20,6 +22,7 @@ r'''
 3. 识别数字
 4. 查找解法集合
 '''
+finder_dll = CDLL("clib/solve.dll")
 
 def get_number_grids_from_image(file_name:str, dir:str = "imgs", narrow_rate_single:float = 0.15): 
     r'''
@@ -248,8 +251,8 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                             break
                         
                         # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束,注意，必须是正负项都超出才是超出
-                        if now_sum >= 10 and ( True or w_index == len(w_range) - 1 or np.abs(w) > np.abs(w_range[w_index + 1])):
-                            if w == 1 and (True or h_index == len(h_range) - 1 or np.abs(h) > np.abs(h_range[h_index + 1])):
+                        if now_sum >= 10 and (w_index == len(w_range) - 1 or np.abs(w) < np.abs(w_range[w_index + 1])):
+                            if w == 1 and (h_index == len(h_range) - 1 or np.abs(h) < np.abs(h_range[h_index + 1])):
                                 height_max = True
                             break
                     if height_max == True:
@@ -283,8 +286,8 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                             break
                         
                         # 找到匹配或超出，宽度遍历结束，break，如果此时宽度为1，那么高度遍历也结束
-                        if now_sum >= 10 and (True or h_index == len(h_range) - 1 or np.abs(h) > np.abs(h_range[h_index + 1])):
-                            if h == 1 and (True or w_index == len(w_range) - 1 or np.abs(w) > np.abs(w_range[w_index + 1])):
+                        if now_sum >= 10 and (h_index == len(h_range) - 1 or np.abs(h) < np.abs(h_range[h_index + 1])):
+                            if h == 1 and (w_index == len(w_range) - 1 or np.abs(w) < np.abs(w_range[w_index + 1])):
                                 width_max = True
                             break
                     if width_max == True:
@@ -317,8 +320,30 @@ class Solution:
     
     def get_hash(self):
         return hashlib.md5(self.current_matrix.tobytes()).hexdigest()
+    
+def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = True):
+    global finder_dll
+    _find_all_seq_matches_clang = finder_dll.find_all_seq_matches
+    _find_all_seq_matches_clang.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    _find_all_seq_matches_clang.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_int))
 
-def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True, processing_silent:bool = True):
+    py_matrix = origin_matrix.copy().flatten().tolist()
+    rows = len(origin_matrix)
+    cols = len(origin_matrix[0])
+    c_flat_matrix = (ctypes.c_int * (rows * cols))(*py_matrix)
+    c_shuffle = 1 if shuffle_index else 0
+
+    res = _find_all_seq_matches_clang(c_flat_matrix, rows, cols, c_shuffle)
+
+    rects = []
+    for i in range(80):
+        if res[i][0] == -1:
+            break
+        rects.append((res[i][0],res[i][1],res[i][2],res[i][3]))
+
+    return rects
+
+def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True, processing_silent:bool = True, use_c_dll:bool = True):
     if not processing_silent:
         print("Processing In")
     origin_solution = Solution(matrix)
@@ -334,8 +359,12 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
     while len(solutions_queue) > 0:
         
         solution = solutions_queue.pop()
-        
-        next_rects_list = [find_all_seq_matches(solution.current_matrix, random_search) for _ in range(get_branchs())]
+
+        next_rects_list = []
+        if use_c_dll:
+            next_rects_list = [find_all_seq_matches_clang(solution.current_matrix, random_search) for _ in range(get_branchs())]
+        else:
+            next_rects_list = [find_all_seq_matches(solution.current_matrix, random_search) for _ in range(get_branchs())]
         for rects in next_rects_list:
             calc_count += 1
             if len(rects) == 0:
@@ -605,7 +634,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),0.7,True,user_disp_method != "t") for _ in range(10)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),0.7,True,user_disp_method != "t", use_c_dll=True) for _ in range(10)]
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")

@@ -3,9 +3,10 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <math.h>
 
 #define HXDLL __declspec(dllexport)
-#define SWAP(a,b) {int temp=a;a=b;b=temp;}
+#define SWAP(a,b) {int SWAPtemp=(a);(a)=(b);(b)=SWAPtemp;}
 
 //编译dll文件的命令是cl /LD xx.c
 
@@ -44,8 +45,12 @@ int m_index(int i, int j, int col_size){
 }
 
 // 计算矩形范围内的和
-int sum_rect(int* matrix, int col_size, int y, int x, int h, int w){
+int sum_rect(int* matrix, int col_size, int* rect){
     int sum = 0;
+    int y = rect[0];
+    int x = rect[1];
+    int h = rect[2];
+    int w = rect[3];
     for(int i = y; i < y + h; i++){
         for(int j = x; j < x + w; j++){
             sum += matrix[m_index(i, j, col_size)];
@@ -55,7 +60,11 @@ int sum_rect(int* matrix, int col_size, int y, int x, int h, int w){
 }
 
 // 执行矩阵，将内部全部赋值为0
-void execute_rect(int* matrix, int col_size, int y, int x, int h, int w){
+void execute_rect(int* matrix, int col_size, int* rect){
+    int y = rect[0];
+    int x = rect[1];
+    int h = rect[2];
+    int w = rect[3];
     for(int i = y; i < y + h; i++){
         for(int j = x; j < x + w; j++){
             matrix[m_index(i, j, col_size)] = 0;
@@ -63,77 +72,237 @@ void execute_rect(int* matrix, int col_size, int y, int x, int h, int w){
     }
 }
 
+/**
+ * 生成正负交替的range，数组空间分配也在内部完成
+ * @param side_first <0时，负数优先, > 0 正数优先, == 0 随机决定优先
+ * @returns 数组长度
+*/
+size_t gen_cross_double_range(int** array, int left_stop, int right_stop, int side_first){
+    if (side_first == 0){
+        side_first = rand() % 2 == 0 ? -1 : 1;
+    }
+    size_t length = left_stop + right_stop - 2;
 
-HXDLL int* find_all_seq_matches(int* origin_matrix, int w, int h, int shuffle_index){
+    (*array) = (int*)malloc(sizeof(int) * length);
+
+
+    int insert_index = 0; 
+    for(int i = 1; i < max(left_stop, right_stop); i++){
+        if(side_first > 0){
+            if(i < right_stop){
+                (*array)[insert_index++] = i;
+            }
+            if(i < left_stop){
+                (*array)[insert_index++] = -i;
+            }
+        }else{
+            if(i < left_stop){
+                (*array)[insert_index++] = -i;
+            }
+            if(i < right_stop){
+                (*array)[insert_index++] = i;
+            }
+        }
+    }
+    return length;
+}
+
+/**
+ * 修正宽高为负数的矩形区域
+*/
+int* fix_rect(y, x, h, w){
+    int* rect = (int*)malloc(sizeof(int) * 4);
+    rect[0] = y;
+    rect[1] = x;
+    rect[2] = h;
+    rect[3] = w;
+
+    if(h < 0){
+        rect[0]-=h;
+        rect[2]++;
+    }
+    if(w < 0){
+        rect[1]-=w;
+        rect[3]++;
+    }
+
+    return rect;
+}
+
+
+HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shuffle_index){
     
     srand(getseeds());
-    int* matrix = (int*)malloc(sizeof(int) * w * h);
+    int* matrix = (int*)malloc(sizeof(int) * cols * rows);
     //最多只可能存在方块数一半的匹配
-    int rects_max_count = w * h / 2;
+    int rects_max_count = cols * rows / 2 + 1;
     int** matched_rects = (int**)malloc(sizeof(int*) * rects_max_count);
-    for(int i = 0; i < rects_max_count; i++){
-        //每个方块是y,x,h,w组成的，需要四个数字,所以分配四个空间
-        matched_rects[i] = (int*)malloc(sizeof(int) * 4);
-    }
+    int picked_rect_count = 0;
 
     // 准备打乱的行列索引
     int* row_list = NULL;
     int* col_list = NULL;
 
     // 应当传入数组变量的地址
-    init_range(&row_list, 0 ,h);
-    init_range(&col_list, 0, w);
+    init_range(&row_list, 0 ,rows);
+    init_range(&col_list, 0, cols);
 
     if(shuffle_index != 0){
-        shuffle(row_list, h);
-        shuffle(col_list, w);
+        shuffle(row_list, rows);
+        shuffle(col_list, cols);
     }
 
-    for(int _i = 0, i = 0; _i < h; _i++){
-        i = row_list[_i];
+    for(int _i = 0; _i < rows; _i++){
+        int i = row_list[_i];
         int height_max = false;
-        for(int _j = 0, j = 0; _j < w; _j++){
-            j = col_list[_j];
+        int width_max = false;
+        for(int _j = 0; _j < cols; _j++){
+            int j = col_list[_j];
 
-            if(matrix[m_index(i, j, w)] == 0){
+            if(matrix[m_index(i, j, cols)] == 0){
                 continue;
             }
             
-            bool h_first = randbetween(0,2) < 1;
+            bool h_first = rand() % 2 == 1;
 
             //先横向扩展的情况
             if(h_first == true){
                 // 确认是否达到最大宽度的flag
                 height_max = false;
-                // 行列延申时也判断是否以空格子起步
-                for(int h_dlt = -i; h_dlt < h - i + 1; h_dlt++){
-                    if(matrix[m_index(i, j, w)] == 0){
+                
+                //建立搜索的高度范围
+                int* h_range = NULL;
+                int h_range_len = gen_cross_double_range(&h_range, i + 1, rows - i + 1,0);
+
+                for(int h_dlt_index = 0; h_dlt_index < h_range_len; h_dlt_index++){
+                    int h = h_range[h_dlt_index];
+                    // 行列延申时也判断是否以空格子起步
+                    if(matrix[m_index(i, j, cols)] == 0){
                         break;
                     }
 
-                    for(int w_dlt = -j; w_dlt < w - j + 1; w_dlt++)
+                    // 建立搜索的宽度范围
+                    int* w_range = NULL;
+                    int w_range_len = gen_cross_double_range(&w_range, j + 1, cols - j + 1, 0);
+                    for(int w_dlt_index = 0; w_dlt_index < w_range_len; w_dlt_index++){
+                        int w = w_range[w_dlt_index];
+
+                        if(h == 1 && w == 1){
+                            continue;
+                        }
+
+                        printf("pre hw fix\n");
+                        int* rect = fix_rect(i, j, h, w);
+                        int now_sum = sum_rect(matrix, cols, rect);
+                        printf("hw sum\n");
+
+                        if(now_sum == 10){
+                            matched_rects[picked_rect_count++] = rect;
+                            printf("pre hw exec\n");
+                            execute_rect(matrix, cols, rect);
+                            printf("hw exec\n");
+                            height_max = true;
+                            break;
+                        }else{
+                            printf("pre hw free rect\n");
+                            free(rect);
+                            printf("hw free rect\n");
+                        }
+
+                        if(now_sum >= 10 && (w_dlt_index == w_range_len - 1 || abs(w) < abs(w_range[w_dlt_index + 1]))){
+                            if(w == 1 && (h_dlt_index == h_range_len - 1 || abs(h) < abs(h_range[h_dlt_index + 1]))){
+                                height_max = true;
+                            }
+                            break;
+                        }
+                    }
+                    free(w_range);
+                    if(height_max){
+                        break;
+                    }
+                    
                 }
+                free(h_range);
             }
+            else{
+                // 确认是否达到最大宽度的flag
+                width_max = false;
+                
+                //建立搜索的宽度范围
+                int* w_range = NULL;
+                int w_range_len = gen_cross_double_range(&w_range, j + 1, cols - j + 1,0);
 
+                for(int w_dlt_index = 0; w_dlt_index < w_range_len; w_dlt_index++){
+                    int w = w_range[w_dlt_index];
+                    // 行列延申时也判断是否以空格子起步
+                    if(matrix[m_index(i, j, cols)] == 0){
+                        break;
+                    }
 
+                    // 建立搜索的高度范围
+                    int* h_range = NULL;
+                    int h_range_len = gen_cross_double_range(&h_range, i + 1, cols - i + 1, 0);
+                    for(int h_dlt_index = 0; h_dlt_index < h_range_len; h_dlt_index++){
+                        int h = h_range[h_dlt_index];
 
+                        if(h == 1 && w == 1){
+                            continue;
+                        }
+
+                        printf("pre wh fix\n");
+                        int* rect = fix_rect(i, j, h, w);
+                        int now_sum = sum_rect(matrix, cols, rect);
+                        printf("wh sum\n");
+
+                        if(now_sum == 10){
+                            matched_rects[picked_rect_count++] = rect;
+                            printf("pre wh exec\n");
+                            execute_rect(matrix, cols, rect);
+                            printf("wh exec\n");
+                            height_max = true;
+                            break;
+                        }else{
+                            printf("pre wh free rect\n");
+                            free(rect);
+                            printf("wh free rect\n");
+                        }
+
+                        if(now_sum >= 10 && (h_dlt_index == h_range_len - 1 || abs(h) < abs(h_range[h_dlt_index + 1]))){
+                            if(h == 1 && (w_dlt_index == w_range_len - 1 || abs(w) < abs(w_range[w_dlt_index + 1]))){
+                                width_max = true;
+                            }
+                            break;
+                        }
+                    }
+                    free(h_range);
+                    if(width_max){
+                        break;
+                    }
+                }
+                free(w_range);
+            }
         }
     }
+    free(matrix);
+    free(row_list);
+    free(col_list);
+    int* ends_symbol = (int*)malloc(sizeof(int) * 4);
+    ends_symbol[0] = -1;
+    ends_symbol[1] = -1;
+    ends_symbol[2] = -1;
+    ends_symbol[3] = -1;
 
-    return NULL;
+    matched_rects[picked_rect_count] = ends_symbol;
+
+    return matched_rects;
 }
 
 int main(int argc, char** argv){
-    int h = 16;
-    int w = 10;
-    for(int _i = 0, i = 0; _i < h; _i++){
-        for(int _j = 0, j = 0; _j < w; _j++){
-            printf("(%d,%d,%d,%d)", _i,_j,i,j);
-        }
-    }
-    bool h_first = randbetween(0,2) < 1;
-    printf("%d", h_first);
+    int* array = (int*)malloc(sizeof(int) * 160);
 
+    printf("len: %zd", sizeof(array));
+
+    free(array);
 
     return 0;
 }

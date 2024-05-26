@@ -11,7 +11,6 @@ from tqdm import tqdm
 import time
 import configparser
 
-
 class Tag(Enum):
     '''
     描述一个样本的类别，包括类别名称和onehot编码
@@ -74,16 +73,15 @@ class Layer:
                 self.weight_matrix = np.full((length, prev_length), matrix_init_seed, dtype=np.float32)
             else:
                 self.weight_matrix = (matrix_init_seed * 2 * np.random.ranf((length, prev_length)) - matrix_init_seed).astype(np.float32)
-
+            
             # 初始化偏置向量，默认随机
             if bias_init_method == self.METHOD_INIT_FIX:
                 self.bias_vector = np.full((length, 1), bias_init_seed, dtype=np.float32)
             else:
                 self.bias_vector = (bias_init_seed * 2 * np.random.ranf((length, 1)) - bias_init_seed).astype(np.float32)
             
-            self.layer_pure_value = np.ndarray = None
+            self.layer_pure_value:np.ndarray = None
             self.layer_value:np.ndarray = None
-        
         self.prev_layer:Layer = None
         self.next_layer:Layer = None
         self.layer_gradient:np.ndarray = None
@@ -211,7 +209,7 @@ class OneHotFullLinkNetwork:
         layer_sizes = [input_len] + self.mid_layer_sizes + [self.output_len]
 
         self.layers.append(Layer(input_len, None, None, None, None, None, True, None))
-
+        
         for i in range(1, len(layer_sizes)):
             self.layers.append(Layer(layer_sizes[i], layer_sizes[i - 1], Layer.METHOD_INIT_FIX, bias_init_method=Layer.METHOD_INIT_FIX, matrix_init_seed=1, bias_init_seed=1, is_input=False))
 
@@ -223,7 +221,6 @@ class OneHotFullLinkNetwork:
                 self.layers[i].prev_layer = self.layers[i - 1]
                 self.layers[i].weight_matrix = layers_weight_arrays[i - 1]
                 self.layers[i].bias_vector = layers_bias_arrays[i - 1]
-
 
         self.layers[-1].next_layer = None
         self.is_inited = True
@@ -410,21 +407,22 @@ class OneHotFullLinkNetwork:
         sample_width = int(config["main"]["sample_width"])
         sample_height = int(config["main"]["sample_height"])
 
-        weight_load = np.load(weights_file_name)
         weight_matrix = []
-        for i in range(len(weight_load)):
-            weight_matrix.append(weight_load[OneHotFullLinkNetwork.get_n_weight_name(i + 1)])
+        with np.load(weights_file_name) as weight_load:            
+            for i in range(len(weight_load)):
+                windex = OneHotFullLinkNetwork.get_n_weight_name(i + 1)
+                weight_matrix.append(weight_load[windex].copy())
 
-        bias_load = np.load(biases_file_name)
         biases_matrix = []
-        for i in range(len(bias_load)):
-            biases_matrix.append(bias_load[OneHotFullLinkNetwork.get_n_bias_name(i + 1)])
+        with np.load(biases_file_name) as bias_load:
+            for i in range(len(bias_load)):
+                biases_matrix.append(bias_load[OneHotFullLinkNetwork.get_n_bias_name(i + 1)].copy())
         
         mid_layer_sizes = [len(x) for x in biases_matrix[:-1]]
-
+        
         network = OneHotFullLinkNetwork(mid_layer_sizes, "ReLU", learn_rate=learn_rate, mid_normal_max=mid_normal_max, sample_shape=(sample_width, sample_height))
         network.init_network_for_predict(weight_matrix, biases_matrix)
-
+        
         return network
 
 def train(config_save_dir:str = "nn_config", mid_layer_sizes:list = [160,72], learn_rate:int = 0.05, mid_normal_max = 5, color_reverse:bool = False):
