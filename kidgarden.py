@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import QApplication
 from threading import Thread
 import ctypes
 from ctypes import CDLL
+from concurrent import futures
 
 
 r'''
@@ -201,13 +202,15 @@ def fix_rect(y, x, h, w):
     return (y, x, h, w)
 
 
-def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
+def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True, max_steps:int = 0):
     r'''
-    此方法和上一方法的区别在于，此方法寻找的是在不重叠情况下， 一次可以并行消除的所有区域，这样虽然压缩了可能性，但是能有效剪枝
+    此方法和上一方法的区别在于，此方法寻找的是在不重叠情况下， 一次可以并行消除的所有区域，这样虽然压缩了可能性，但是能有效剪枝, steps_len_max是一次最多查找几步，0为不限制
     '''
     matrix = np.copy(origin_matrix)
     rows, cols = len(matrix), len(matrix[0])
     matched_rects = []
+    if max_steps <= 0:
+        max_steps = 99999
 
     rows_list = list(range(rows))
     cols_list = list(range(cols))
@@ -247,6 +250,9 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                         if now_sum == 10:
                             matched_rects.append(rect)
                             execute_rect(matrix, rect)
+                            # 有必要时进行截断
+                            if len(matched_rects) >= max_steps:
+                                return matched_rects
                             height_max = True
                             break
                         
@@ -282,6 +288,9 @@ def find_all_seq_matches(origin_matrix:np.ndarray, shuffle_index:bool = True):
                             # TODO:允许从空格子开始，并在最后消除空行空列
                             matched_rects.append(rect)
                             execute_rect(matrix, rect)
+                            # 有必要时进行截断
+                            if len(matched_rects) >= max_steps:
+                                return matched_rects
                             width_max = True
                             break
                         
@@ -321,10 +330,10 @@ class Solution:
     def get_hash(self):
         return hashlib.md5(self.current_matrix.tobytes()).hexdigest()
     
-def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = True):
+def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = True, max_steps:int = 0):
     global finder_dll
     _find_all_seq_matches_clang = finder_dll.find_all_seq_matches
-    _find_all_seq_matches_clang.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    _find_all_seq_matches_clang.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
     _find_all_seq_matches_clang.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_int))
 
     py_matrix = origin_matrix.copy().flatten().tolist()
@@ -333,7 +342,7 @@ def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = Tr
     c_flat_matrix = (ctypes.c_int * (rows * cols))(*py_matrix)
     c_shuffle = 1 if shuffle_index else 0
 
-    res = _find_all_seq_matches_clang(c_flat_matrix, rows, cols, c_shuffle)
+    res = _find_all_seq_matches_clang(c_flat_matrix, rows, cols, c_shuffle, max_steps)
 
     rects = []
     for i in range(81):
@@ -343,10 +352,10 @@ def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = Tr
 
     return rects
 
-def find_all_seq_matches_with_branch_clang(origin_matrix:np.ndarray, shuffle_index:bool = True, branches:int = 1):
+def find_all_seq_matches_with_branch_clang(origin_matrix:np.ndarray, shuffle_index:bool = True, branches:int = 1, max_steps:int = 0):
     global finder_dll
     _find_all_seq_matches_with_branch_clang = finder_dll.find_all_seq_matches_mthread
-    _find_all_seq_matches_with_branch_clang.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    _find_all_seq_matches_with_branch_clang.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
     _find_all_seq_matches_with_branch_clang.restype = ctypes.POINTER(ctypes.POINTER(ctypes.POINTER(ctypes.c_int)))
 
     py_matrix = origin_matrix.copy().flatten()
@@ -355,7 +364,7 @@ def find_all_seq_matches_with_branch_clang(origin_matrix:np.ndarray, shuffle_ind
     c_flat_matrix = (ctypes.c_int * (rows * cols))(*py_matrix)
     c_shuffle = 1 if shuffle_index else 0
 
-    _res = _find_all_seq_matches_with_branch_clang(c_flat_matrix, rows, cols, c_shuffle, branches)
+    _res = _find_all_seq_matches_with_branch_clang(c_flat_matrix, rows, cols, c_shuffle, branches, max_steps)
 
     rects_list = [[] for _ in range(branches)]
     for i in range(branches):
@@ -386,11 +395,11 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
         next_rects_list = []
         if use_c_dll:
             if c_dll_mthreads:
-                next_rects_list = find_all_seq_matches_with_branch_clang(solution.current_matrix, random_search, get_branchs())
+                next_rects_list = find_all_seq_matches_with_branch_clang(solution.current_matrix, random_search, get_branchs(), max_steps=0 if limit_use_rects < 1 else limit_use_rects)
             else:
-                next_rects_list = [find_all_seq_matches_clang(solution.current_matrix, random_search) for _ in range(get_branchs())]
+                next_rects_list = [find_all_seq_matches_clang(solution.current_matrix, random_search, max_steps=0 if limit_use_rects < 1 else limit_use_rects) for _ in range(get_branchs())]
         else:
-            next_rects_list = [find_all_seq_matches(solution.current_matrix, random_search) for _ in range(get_branchs())]
+            next_rects_list = [find_all_seq_matches(solution.current_matrix, random_search, max_steps=0 if limit_use_rects < 1 else limit_use_rects) for _ in range(get_branchs())]
         for rects in next_rects_list:
             calc_count += 1
             if len(rects) == 0:
@@ -399,19 +408,21 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
             
             # 如果设置了主动减除一次操作序列的后半部分
             using_limit_use_rects = 0
-            if limit_use_rects != None and np.random.rand() < 0.8 and len(rects) > 2:
+            if limit_use_rects != None and np.random.rand() < 0.95 and len(rects) > 3:
                 try:
                     if limit_use_rects < 1:
                         # print(f"Before({limit_use_rects}, {len(rects)})")
                         using_limit_use_rects = max(1, min(len(rects), int(len(rects) * limit_use_rects) + 1))
-                    else:
-                        using_limit_use_rects = limit_use_rects
-                    rects = rects[:np.random.randint(using_limit_use_rects, len(rects) + 1)]
+                        rects = rects[:np.random.randint(using_limit_use_rects, len(rects) + 1)]
                 except ValueError:
                     print(f"({using_limit_use_rects}, {len(rects)})")
                     sys.exit(0)
             for rect in rects:
                 new_solution.add_step(rect)
+                new_hash = new_solution.get_hash()
+                if new_hash in matrix_hashs:
+                    drops += 1
+                    break
             if new_solution.is_win():
                 best_solution = new_solution
                 break
@@ -558,9 +569,9 @@ def print_steps_hover(start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, 
     pass
 
 def take_charge_from_qt_display(step_window:StepWindow, start_img:np.ndarray, step_imgs:list, end_img:np.ndarray, auto_interval_ms:int = 0):
-    time.sleep(0.5)
+    time.sleep(0.2)
     step_window.display_img(start_img)
-    time.sleep(1)
+    time.sleep(0.2)
     if step_window.should_start == False:
         print("请点击导航窗格并按回车键开始")
         while step_window.should_start == False:
@@ -574,6 +585,9 @@ def take_charge_from_qt_display(step_window:StepWindow, start_img:np.ndarray, st
     step_window.display_img(end_img)
 
     return
+
+def concurrent_find_best_solultion(matrix:np.ndarray, get_branchs = lambda : 2, limit_use_rects: int = None, random_search: bool = True, processing_silent: bool = True, use_c_dll: bool = True, c_dll_mthreads: bool = True) -> Solution:
+    pass
     
 
 def main():
@@ -660,7 +674,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(12,20),2,True,user_disp_method != "t", use_c_dll=True, c_dll_mthreads=True) for _ in range(1)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(2,3),4,True,user_disp_method != "t", use_c_dll=True, c_dll_mthreads=True) for _ in range(15)]
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")

@@ -156,7 +156,10 @@ int get_cpu_count(){
     return num_process;
 }
 
-HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shuffle_index){
+/**
+ * 寻找一次可走的最大步数
+*/
+HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shuffle_index, int max_steps){
     
     srand(getseeds());
     int* matrix = (int*)malloc(sizeof(int) * cols * rows);
@@ -164,6 +167,10 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
     {
         matrix[i] = origin_matrix[i];
     }
+
+    // 修正maxsteps
+    max_steps = max_steps <= 0 ? 99999 : max_steps;
+    bool reach_max_step = false;
     
     // 最大矩形数不超过元素数量的一半
     int rects_max_count = (cols * rows) / 2 + 1;
@@ -228,6 +235,10 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
 
                         if(now_sum == 10){
                             matched_rects[picked_rect_count++] = rect;
+                            if(picked_rect_count >= max_steps){
+                                reach_max_step = true;
+                                break;
+                            }
                             execute_rect(matrix, cols, rect);
                             height_max = true;
                             break;
@@ -243,12 +254,15 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                         }
                     }
                     free(w_range);
-                    if(height_max){
+                    if(height_max || reach_max_step){
                         break;
                     }
                     
                 }
                 free(h_range);
+                if(reach_max_step){
+                    break;
+                }
             }
             else{
                 // 宽度达到最大的flag
@@ -282,6 +296,10 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
 
                         if(now_sum == 10){
                             matched_rects[picked_rect_count++] = rect;
+                            if(picked_rect_count >= max_steps){
+                                reach_max_step = true;
+                                break;
+                            }
                             execute_rect(matrix, cols, rect);
                             width_max = true;
                             break;
@@ -297,12 +315,21 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                         }
                     }
                     free(h_range);
-                    if(width_max){
+                    if(width_max || reach_max_step){
                         break;
                     }
                 }
                 free(w_range);
+                if(reach_max_step){
+                    break;
+                }
             }
+            if(reach_max_step){
+                break;
+            }
+        }
+        if(reach_max_step){
+            break;
         }
     }
     free(matrix);
@@ -324,6 +351,7 @@ typedef struct {
     int rows;
     int cols;
     int shuffle_index;
+    int max_steps;
     int** result;
 } ProcessData;
 
@@ -332,7 +360,7 @@ typedef struct {
 */
 DWORD WINAPI thread_function(LPVOID arg){
     ProcessData* data = (ProcessData*) arg;
-    data->result = find_all_seq_matches(data->origin_matrix, data->rows, data->cols, data->shuffle_index);
+    data->result = find_all_seq_matches(data->origin_matrix, data->rows, data->cols, data->shuffle_index, data->max_steps);
     return 0;
 } 
 
@@ -356,7 +384,7 @@ int get_allowed_thread_count(int cpu_count){
  * 若branchs <= 线程数，则直接开branch数量个线程
  * branches > 线程数，则走循环，每次开最多branches个线程
 */
-HXDLL int *** find_all_seq_matches_mthread(int* origin_matrix, int rows, int cols, int shuffle_index, int branches){
+HXDLL int *** find_all_seq_matches_mthread(int* origin_matrix, int rows, int cols, int shuffle_index, int branches, int each_max_steps){
     int*** res_list = (int***)malloc(sizeof(int**) * branches);
     int cpu_count = get_cpu_count();
     int max_threads = get_allowed_thread_count(cpu_count);
@@ -388,6 +416,7 @@ HXDLL int *** find_all_seq_matches_mthread(int* origin_matrix, int rows, int col
             datas[i].rows = rows;
             datas[i].cols = cols;
             datas[i].shuffle_index = shuffle_index;
+            datas[i].max_steps = each_max_steps;
             datas[i].result = NULL;
 
             threads[i] = CreateThread(NULL, 0, thread_function, &datas[i], 0, NULL);
@@ -424,7 +453,7 @@ int main(int argc, char** argv){
     int branches = 5000;
 
     int st = time(0);
-    rects_list = find_all_seq_matches_mthread(array, 16, 10, 1, branches);
+    rects_list = find_all_seq_matches_mthread(array, 16, 10, 1, branches, 3);
     int end = time(0);
     printf("All Finish: %d s", end - st);
     // printf("finish");
