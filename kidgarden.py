@@ -336,7 +336,7 @@ def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = Tr
     res = _find_all_seq_matches_clang(c_flat_matrix, rows, cols, c_shuffle)
 
     rects = []
-    for i in range(80):
+    for i in range(81):
         if res[i][0] == -1:
             break
         rects.append((res[i][0],res[i][1],res[i][2],res[i][3]))
@@ -634,7 +634,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(4,8),0.7,True,user_disp_method != "t", use_c_dll=False) for _ in range(10)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(10,20),0.5,True,user_disp_method != "td", use_c_dll=True) for _ in range(10)]
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")
