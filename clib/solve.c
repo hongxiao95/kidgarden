@@ -206,12 +206,6 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                 // 生成高度检索范围
                 int* h_range = NULL;
                 int h_range_len = gen_cross_double_range(&h_range, i + 1, rows - i + 1,0);
-                // printf("\nfor i:%d, j:%d, h_range_len: %d, has h:", i, j, h_range_len);
-                // for (size_t hi = 0; hi < h_range_len; hi++)
-                // {
-                //     printf("%d, ", h_range[hi]);
-                // }
-                // printf("\n");
                 
                 for(int h_dlt_index = 0; h_dlt_index < h_range_len; h_dlt_index++){
                     int h = h_range[h_dlt_index];
@@ -223,40 +217,22 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
                     // 生成宽度检索范围
                     int* w_range = NULL;
                     int w_range_len = gen_cross_double_range(&w_range, j + 1, cols - j + 1, 0);
-                    // printf("\nfor i:%d, j:%d, w_range_len: %d, has w:", i, j, w_range_len);
-                    // for (size_t wi = 0; wi < w_range_len; wi++)
-                    // {
-                    //     printf("%d, ", w_range[wi]);
-                    // }
-                    // printf("\n");
                     for(int w_dlt_index = 0; w_dlt_index < w_range_len; w_dlt_index++){
                         int w = w_range[w_dlt_index];
 
                         if(h == 1 && w == 1){
                             continue;
                         }
-
-                        // printf("pre hw fix\n");
-                        // printf("before fix: (%d, %d, %d, %d) -> ", i, j, h, w);
                         int* rect = fix_rect(i, j, h, w);
-                        // printf("after fix: (%d, %d, %d, %d)\n\n", rect[0], rect[1], rect[2], rect[3]);
                         int now_sum = sum_rect(matrix, cols, rect);
-                        // printf("hw sum\n");
 
                         if(now_sum == 10){
                             matched_rects[picked_rect_count++] = rect;
-                            // printf("pre hw exec\n");
-                            // print_matrix(matrix, 16, 10, "Before Exec");
                             execute_rect(matrix, cols, rect);
-                            // printf("hw exec\n");
-                            // print_matrix(matrix, 16, 10, "EXECED");
-
                             height_max = true;
                             break;
                         }else{
-                            // printf("pre hw free rect\n");
                             free(rect);
-                            // printf("hw free rect\n");
                         }
 
                         if(now_sum >= 10 && (w_dlt_index == w_range_len - 1 || abs(w) < abs(w_range[w_dlt_index + 1]))){
@@ -306,17 +282,11 @@ HXDLL int** find_all_seq_matches(int* origin_matrix, int rows, int cols, int shu
 
                         if(now_sum == 10){
                             matched_rects[picked_rect_count++] = rect;
-                            // printf("pre wh exec\n");
-                            // print_matrix(matrix, 16, 10, "Before Exec");
                             execute_rect(matrix, cols, rect);
-                            // print_matrix(matrix, 16, 10, "EXECED");
-                            // printf("wh exec\n");
-                            height_max = true;
+                            width_max = true;
                             break;
                         }else{
-                            // printf("pre wh free rect\n");
                             free(rect);
-                            // printf("wh free rect\n");
                         }
 
                         if(now_sum >= 10 && (h_dlt_index == h_range_len - 1 || abs(h) < abs(h_range[h_dlt_index + 1]))){
@@ -358,43 +328,124 @@ typedef struct {
 } ProcessData;
 
 /**
+ * 包装为单参数的线程内函数
+*/
+DWORD WINAPI thread_function(LPVOID arg){
+    ProcessData* data = (ProcessData*) arg;
+    data->result = find_all_seq_matches(data->origin_matrix, data->rows, data->cols, data->shuffle_index);
+    return 0;
+} 
+
+int get_allowed_thread_count(int cpu_count){
+    if(cpu_count <= 12){
+        return cpu_count - 1;
+    }else if(cpu_count <= 24){
+        return cpu_count  -2;
+    }else{
+        return cpu_count - 3;
+    }
+}
+
+/**
  * 多线程寻找解的方案，最大程度利用CPU
  * 线程原则：
- * 若逻辑CPU <= 4个，则可开cpu - 1个线程
- * cpu [5,10],可开cpu - 2个线程
- * 10以上，可开cpu - cpu / 10 *2个线程
+ * 若逻辑CPU <= 12个，则可开cpu - 1个线程
+ * cpu [13,24],可开cpu - 2个线程
+ * 24以上，可开cpu - 3个线程
  * 
  * 若branchs <= 线程数，则直接开branch数量个线程
  * branches > 线程数，则走循环，每次开最多branches个线程
 */
 HXDLL int *** find_all_seq_matches_mthread(int* origin_matrix, int rows, int cols, int shuffle_index, int branches){
-    return NULL;
+    int*** res_list = (int***)malloc(sizeof(int**) * branches);
+    int cpu_count = get_cpu_count();
+    int max_threads = get_allowed_thread_count(cpu_count);
+
+    int unhandled_thread_count = branches;
+
+    int total_results_index = 0;
+
+    // printf("Unhandled Threads: %d\n", unhandled_thread_count);
+    while(unhandled_thread_count > 0){
+        int currrent_thread_count = min(max_threads, unhandled_thread_count);
+        unhandled_thread_count -= currrent_thread_count;
+
+        // 本批次线程数组
+        HANDLE* threads = (HANDLE*)malloc(sizeof(HANDLE) * currrent_thread_count);
+
+        ProcessData* datas = (ProcessData*)malloc(sizeof(ProcessData) * currrent_thread_count);
+        // printf("This time has Threads: %d\n", currrent_thread_count);
+        for (size_t i = 0; i < currrent_thread_count; i++)
+        {
+            //装配datas
+            int* copy_matrix = (int*)malloc(sizeof(int) * rows * cols);
+            for (size_t j = 0; j < rows * cols; j++)
+            {
+                copy_matrix[j] = origin_matrix[j];
+            }
+            
+            datas[i].origin_matrix = copy_matrix;
+            datas[i].rows = rows;
+            datas[i].cols = cols;
+            datas[i].shuffle_index = shuffle_index;
+            datas[i].result = NULL;
+
+            threads[i] = CreateThread(NULL, 0, thread_function, &datas[i], 0, NULL);
+            if(threads[i] == NULL){
+                printf("Create Thread Fail.");
+            }
+
+            // DWORD_PTR affinity_mask = (DWORD_PTR) 1 << (i % cpu_count);
+            // SetThreadAffinityMask(threads[i], affinity_mask);
+        }
+        WaitForMultipleObjects(currrent_thread_count, threads, TRUE, INFINITE);
+
+        // 获取本次的结果
+        for (size_t i = 0; i < currrent_thread_count; i++)
+        {
+            CloseHandle(threads[i]);
+            res_list[total_results_index++] = datas[i].result;
+            free(datas[i].origin_matrix);
+        }
+        
+        free(threads);
+        free(datas);
+
+    }
+
+    return res_list;
 }
 
 int main(int argc, char** argv){
-    /*
-        int array[160] = {2, 5, 9, 9, 2, 1, 8, 4, 2, 9, 5, 4, 9, 5, 3, 8, 2, 9, 6, 9, 2, 9, 7, 8, 6, 3, 3, 8, 7, 6, 8, 8, 9, 2, 3, 1, 6, 8, 9, 5, 2, 2, 5, 7, 2, 4, 3, 9, 5, 5, 7, 3, 8, 1, 6, 7, 8, 7, 3, 1, 7, 8, 6, 1, 2, 5, 1, 8, 1, 4, 4, 3, 7, 7, 6, 8, 1, 1, 6, 2, 8, 4, 9, 4, 7, 7, 1, 1, 6, 8, 2, 4, 5, 3, 9, 7, 5, 3, 6, 9, 4, 2, 5, 1, 9, 1, 6, 5, 1, 7, 4, 1, 4, 6, 3, 7, 9, 9, 9, 1, 4, 5, 9, 3, 1, 2, 7, 4, 3, 5, 3, 9, 1, 6, 2, 2, 4, 3, 8, 3, 4, 4, 3, 4, 4, 1, 9, 4, 2, 6, 4, 3, 5, 1, 7, 6, 8, 1, 5, 9};
     
-    int** rects = NULL;
+    int array[160] = {2, 5, 9, 9, 2, 1, 8, 4, 2, 9, 5, 4, 9, 5, 3, 8, 2, 9, 6, 9, 2, 9, 7, 8, 6, 3, 3, 8, 7, 6, 8, 8, 9, 2, 3, 1, 6, 8, 9, 5, 2, 2, 5, 7, 2, 4, 3, 9, 5, 5, 7, 3, 8, 1, 6, 7, 8, 7, 3, 1, 7, 8, 6, 1, 2, 5, 1, 8, 1, 4, 4, 3, 7, 7, 6, 8, 1, 1, 6, 2, 8, 4, 9, 4, 7, 7, 1, 1, 6, 8, 2, 4, 5, 3, 9, 7, 5, 3, 6, 9, 4, 2, 5, 1, 9, 1, 6, 5, 1, 7, 4, 1, 4, 6, 3, 7, 9, 9, 9, 1, 4, 5, 9, 3, 1, 2, 7, 4, 3, 5, 3, 9, 1, 6, 2, 2, 4, 3, 8, 3, 4, 4, 3, 4, 4, 1, 9, 4, 2, 6, 4, 3, 5, 1, 7, 6, 8, 1, 5, 9};
+    
+    int*** rects_list = NULL;
+    int branches = 5000;
 
-    rects = find_all_seq_matches(array, 16, 10, 1);
+    int st = time(0);
+    rects_list = find_all_seq_matches_mthread(array, 16, 10, 1, branches);
+    int end = time(0);
+    printf("All Finish: %d s", end - st);
     // printf("finish");
-    int check_value = rects[0][0];
-    int index = 0;
-    while(check_value != -1){
-        for (size_t i = 0; i < 4; i++)
-        {
-            printf("%d,", rects[index][i]);
+    for(int rects_index = 0; rects_index < branches; rects_index++){
+        // printf("res index: %d\n", rects_index);
+        int** rects = rects_list[rects_index];
+        int check_value = rects[0][0];
+        int index = 0;
+        while(check_value != -1){
+            // for (size_t i = 0; i < 4; i++)
+            // {
+            //     // printf("%d,", rects[index][i]);
+            // }
+            // printf("\n");
+            check_value = rects[++index][0];
         }
-        printf("\n");
-        check_value = rects[++index][0];
+        // printf("Res Index %d: [%d] Steps\n", rects_index, index);
     }
 
     free(array);
-    */
-   
-
-   printf("logic cpu: %d", num_process);
+    free(rects_list);
     
 
     return 0;

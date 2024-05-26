@@ -343,7 +343,30 @@ def find_all_seq_matches_clang(origin_matrix:np.ndarray, shuffle_index:bool = Tr
 
     return rects
 
-def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True, processing_silent:bool = True, use_c_dll:bool = True):
+def find_all_seq_matches_with_branch_clang(origin_matrix:np.ndarray, shuffle_index:bool = True, branches:int = 1):
+    global finder_dll
+    _find_all_seq_matches_with_branch_clang = finder_dll.find_all_seq_matches_mthread
+    _find_all_seq_matches_with_branch_clang.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    _find_all_seq_matches_with_branch_clang.restype = ctypes.POINTER(ctypes.POINTER(ctypes.POINTER(ctypes.c_int)))
+
+    py_matrix = origin_matrix.copy().flatten()
+    rows = len(origin_matrix)
+    cols = len(origin_matrix[0])
+    c_flat_matrix = (ctypes.c_int * (rows * cols))(*py_matrix)
+    c_shuffle = 1 if shuffle_index else 0
+
+    _res = _find_all_seq_matches_with_branch_clang(c_flat_matrix, rows, cols, c_shuffle, branches)
+
+    rects_list = [[] for _ in range(branches)]
+    for i in range(branches):
+        for j in range(81):
+            if _res[i][j][0] == -1:
+                break
+            rects_list[i].append((_res[i][j][0],_res[i][j][1],_res[i][j][2],_res[i][j][3]))
+    return rects_list
+
+
+def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rects:int = None, random_search:bool = True, processing_silent:bool = True, use_c_dll:bool = True, c_dll_mthreads:bool = True):
     if not processing_silent:
         print("Processing In")
     origin_solution = Solution(matrix)
@@ -362,7 +385,10 @@ def find_best_solution(matrix:np.ndarray, get_branchs = lambda: 2, limit_use_rec
 
         next_rects_list = []
         if use_c_dll:
-            next_rects_list = [find_all_seq_matches_clang(solution.current_matrix, random_search) for _ in range(get_branchs())]
+            if c_dll_mthreads:
+                next_rects_list = find_all_seq_matches_with_branch_clang(solution.current_matrix, random_search, get_branchs())
+            else:
+                next_rects_list = [find_all_seq_matches_clang(solution.current_matrix, random_search) for _ in range(get_branchs())]
         else:
             next_rects_list = [find_all_seq_matches(solution.current_matrix, random_search) for _ in range(get_branchs())]
         for rects in next_rects_list:
@@ -634,7 +660,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(10,20),0.5,True,user_disp_method != "td", use_c_dll=True) for _ in range(10)]
+    best_solutions = [find_best_solution(matrix, lambda:np.random.randint(12,20),2,True,user_disp_method != "t", use_c_dll=True, c_dll_mthreads=True) for _ in range(1)]
     time_end = time.time()
     time_cost = time_end - time_st  
     print(f"总消耗:{np.round(time_cost, 2)}s")
