@@ -689,7 +689,7 @@ def main():
     # 记录寻找解集的时间
     time_st = time.time()
     # 随机查找几个解
-    best_solutions = concurrent_find_best_solultion(matrix, lambda:np.random.randint(12,24),0.8,True,user_disp_method != "td", use_c_dll=True, c_dll_mthreads=True, threads_count=32)
+    best_solutions = concurrent_find_best_solultion(matrix, lambda:np.random.randint(2,3),4,True,user_disp_method != "td", use_c_dll=True, c_dll_mthreads=True, threads_count=100)
     # best_solutions = [find_best_solution(matrix, lambda:np.random.randint(2,3),4,True,user_disp_method != "t", use_c_dll=True, c_dll_mthreads=True) for _ in range(15)]
 
     time_end = time.time()

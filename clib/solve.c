@@ -424,7 +424,9 @@ HXDLL int *** find_all_seq_matches_mthread(int* origin_matrix, int rows, int col
                 printf("Create Thread Fail.");
             }
 
-            // DWORD_PTR affinity_mask = (DWORD_PTR) 1 << (i % cpu_count);
+            // int assign_cpu = randbetween(0, cpu_count);
+
+            // DWORD_PTR affinity_mask = (DWORD_PTR) 1 << assign_cpu;
             // SetThreadAffinityMask(threads[i], affinity_mask);
         }
         WaitForMultipleObjects(currrent_thread_count, threads, TRUE, INFINITE);
